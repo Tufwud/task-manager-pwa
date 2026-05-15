@@ -90,6 +90,7 @@
 
   // ===== LOGIN =====
   function renderLogin() {
+    showLoading(false);
     app.innerHTML = '';
     var wrap = document.createElement('div');
     wrap.className = 'login-wrap';
