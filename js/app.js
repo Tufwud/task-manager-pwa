@@ -99,9 +99,9 @@
       '<h2>Task Management</h2>' +
       '<p>Sign in with your work email &amp; API token</p>' +
       '<div class="login-form">' +
-        '<div class="form-group"><label>Web App URL</label><input type="url" id="api-url" placeholder="https://script.google.com/macros/s/..." value="' + esc(API.base) + '"></div>' +
-        '<div class="form-group"><label>Work Email</label><input type="email" id="api-email" placeholder="you@tufwud.in" value="' + esc(API.email) + '"></div>' +
-        '<div class="form-group"><label>API Token</label><input type="password" id="api-token" placeholder="Get from Sheets → Task Manager → Show PWA API Token" value="' + esc(API.token) + '"></div>' +
+        '<div class="form-group"><label>Web App URL</label><input type="text" inputmode="url" id="api-url" placeholder="https://script.google.com/macros/s/..." value="' + esc(API.base) + '"></div>' +
+        '<div class="form-group"><label>Work Email</label><input type="text" inputmode="email" id="api-email" placeholder="you@tufwud.in" value="' + esc(API.email) + '"></div>' +
+        '<div class="form-group"><label>API Token</label><input type="text" id="api-token" placeholder="Get from Sheets → Task Manager → Show PWA API Token" value="' + esc(API.token) + '"></div>' +
         '<button class="btn btn-primary btn-full" id="login-btn">Sign In</button>' +
         '<div class="help">API Token: Open your Task Management sheet,<br>go to <b>Task Manager &gt; Show PWA API Token</b></div>' +
       '</div>';
@@ -117,7 +117,7 @@
     var token = document.getElementById('api-token').value.trim();
     if (!base || !token || !email) { toast('All fields required', 'error'); return; }
     showLoading(true);
-    saveConfig(base, token, email);
+    saveConfig(base.trim(), token.trim(), email.trim());
     apiGet({ action: 'ping' }).then(function(r) {
       if (r && r.success) {
         return apiGet({ action: 'me' });
@@ -489,6 +489,11 @@
       html += '</select></div>';
     }
     html += '<div class="form-group"><label>Task Name *</label><input type="text" id="create-name" placeholder="Enter task name"></div>';
+    html += '<div class="form-group"><label>Assignor</label><select id="create-assignor"><option value="' + esc(state.user.name) + '">' + esc(state.user.name) + ' (Me)</option>';
+    state.employees.forEach(function(e) {
+      if (e.name !== state.user.name) html += '<option value="' + esc(e.name) + '">' + esc(e.name) + '</option>';
+    });
+    html += '</select></div>';
     html += '<div class="form-row">' +
       '<div class="form-group"><label>Assignee *</label><select id="create-assignee"><option value="">Select...</option>' +
       state.employees.map(function(e) { return '<option value="' + esc(e.name) + '">' + esc(e.name) + '</option>'; }).join('') +
@@ -530,7 +535,7 @@
       showLoading(true);
       apiPost({
         action: 'createTask', dept: dept, taskName: taskName, assignee: assignee,
-        assignor: state.user ? state.user.name : 'Mobile App', priority: priority,
+        assignor: document.getElementById('create-assignor').value || state.user.name, priority: priority,
         description: desc, dueDate: dueDateStr, recurring: recurring, recurringType: recurType
       }).then(function(r) {
         showLoading(false);

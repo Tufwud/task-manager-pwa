@@ -337,7 +337,17 @@ function doPost(e) {
         var sheet = ss.getSheetByName(dept);
         if (!sheet) return err('Department sheet not found: ' + dept);
 
-        var newRow = sheet.getLastRow() + 1;
+        // Find first empty row in column B (task names)
+        // ARRAYFORMULA inflates getLastRow() to 5000, so we scan for actual empty cell
+        var maxFormulaRow = sheet.getLastRow();
+        var bValues = sheet.getRange(2, 2, maxFormulaRow + 100, 1).getValues();
+        var newRow = bValues.length + 2; // fallback: append at end
+        for (var br = 0; br < bValues.length; br++) {
+          if (!bValues[br][0] || bValues[br][0].toString().trim() === '') {
+            newRow = br + 2;
+            break;
+          }
+        }
         sheet.getRange(newRow, 2).setValue(taskName);
         sheet.getRange(newRow, 3).setValue(priority);
         sheet.getRange(newRow, 4).setValue('Open');
