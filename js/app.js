@@ -38,9 +38,25 @@
 
   var app = document.getElementById('app');
   var loadingEl = document.getElementById('loading');
+  var refreshEl = null;
+
+  // Simple cache with TTL
+  var cache = {};
+  function cacheGet(key) { var c = cache[key]; if (c && Date.now() < c.expiry) return c.data; return null; }
+  function cacheSet(key, data, ttlSec) { cache[key] = { data: data, expiry: Date.now() + (ttlSec || 300) * 1000 }; }
 
   function showLoading(show) {
     loadingEl.classList.toggle('hidden', !show);
+  }
+
+  function showRefresh(show) {
+    if (refreshEl) { refreshEl.remove(); refreshEl = null; }
+    if (!show) return;
+    refreshEl = document.createElement('div');
+    refreshEl.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:50;background:var(--primary);color:white;text-align:center;padding:4px;font-size:12px;animation:fadeIn 0.2s;';
+    refreshEl.textContent = 'Refreshing...';
+    document.body.appendChild(refreshEl);
+    setTimeout(function() { if (refreshEl) { refreshEl.remove(); refreshEl = null; } }, 5000);
   }
 
   function toast(msg, type) {
@@ -243,11 +259,14 @@
 
   // ===== DASHBOARD =====
   function loadDashboard() {
-    showLoading(true);
+    var cached = cacheGet('dashboard');
+    if (cached) { state.dashboard = cached; state.view = 'dashboard'; render(); showRefresh(true); }
+    else showLoading(true);
+
     apiGet({ action: 'dashboard' }).then(function(r) {
-      showLoading(false);
-      if (r && r.success) { state.dashboard = r.data; state.view = 'dashboard'; render(); }
-    }).catch(function(e) { showLoading(false); toast('Error: ' + e.message, 'error'); });
+      showLoading(false); showRefresh(false);
+      if (r && r.success) { cacheSet('dashboard', r.data, 300); state.dashboard = r.data; if (state.view === 'dashboard') render(); }
+    }).catch(function(e) { showLoading(false); showRefresh(false); if (!cached) toast('Error: ' + e.message, 'error'); });
   }
 
   function renderDashboard() {
@@ -322,12 +341,17 @@
     dept = dept || state.currentDept;
     if (!dept && state.departments.length > 0) dept = state.departments[0];
     state.currentDept = dept;
-    showLoading(true);
+
+    var cacheKey = 'tasks_' + dept + '_' + (status || '') + '_' + (search || '');
+    var cached = cacheGet(cacheKey);
+    if (cached) { state.tasks = cached.data; state.taskTotal = cached.total; state.view = 'tasks'; render(); showRefresh(true); }
+    else showLoading(true);
+
     apiGet({ action: 'tasks', dept: dept, status: status || '', search: search || '', limit: 200 }).then(function(r) {
-      showLoading(false);
-      if (r && r.success) { state.tasks = r.data; state.taskTotal = r.total; state.view = 'tasks'; render(); }
-      else { toast('Failed: ' + (r && r.error || 'Unknown'), 'error'); }
-    }).catch(function(e) { showLoading(false); toast('Error: ' + e.message, 'error'); });
+      showLoading(false); showRefresh(false);
+      if (r && r.success) { cacheSet(cacheKey, { data: r.data, total: r.total }, 120); state.tasks = r.data; state.taskTotal = r.total; if (state.view === 'tasks') render(); }
+      else if (!cached) { toast('Failed: ' + (r && r.error || 'Unknown'), 'error'); }
+    }).catch(function(e) { showLoading(false); showRefresh(false); if (!cached) toast('Error: ' + e.message, 'error'); });
   }
 
   function renderTasks() {
@@ -471,7 +495,7 @@
       showLoading(true);
       apiPost({ action: 'updateTask', dept: task.dept, row: task.row, updates: updates }).then(function(r) {
         showLoading(false);
-        if (r && r.success) { toast('Updated to ' + newStatus, 'success'); openTaskDetail(task.dept, task.row); }
+        if (r && r.success) { toast('Updated to ' + newStatus, 'success'); cache = {}; openTaskDetail(task.dept, task.row); }
         else { toast('Update failed: ' + (r && r.error || 'Unknown'), 'error'); }
       }).catch(function(e) { showLoading(false); toast('Error: ' + e.message, 'error'); });
     });
@@ -539,7 +563,7 @@
         description: desc, dueDate: dueDateStr, recurring: recurring, recurringType: recurType
       }).then(function(r) {
         showLoading(false);
-        if (r && r.success) { toast('Created: ' + r.data.taskId, 'success'); state.currentDept = dept; loadTasks(dept); }
+        if (r && r.success) { toast('Created: ' + r.data.taskId, 'success'); state.currentDept = dept; cache = {}; loadTasks(dept); }
         else { toast('Failed: ' + (r && r.error || 'Unknown'), 'error'); }
       }).catch(function(e) { showLoading(false); toast('Error: ' + e.message, 'error'); });
     });
@@ -547,11 +571,14 @@
 
   // ===== REPORTS =====
   function loadReports() {
-    showLoading(true);
+    var cached = cacheGet('reports');
+    if (cached) { state.reports = cached; state.view = 'reports'; render(); showRefresh(true); }
+    else showLoading(true);
+
     apiGet({ action: 'reports', reportType: 'all' }).then(function(r) {
-      showLoading(false);
-      if (r && r.success) { state.reports = r.data; state.view = 'reports'; render(); }
-    }).catch(function(e) { showLoading(false); toast('Error: ' + e.message, 'error'); });
+      showLoading(false); showRefresh(false);
+      if (r && r.success) { cacheSet('reports', r.data, 300); state.reports = r.data; if (state.view === 'reports') render(); }
+    }).catch(function(e) { showLoading(false); showRefresh(false); if (!cached) toast('Error: ' + e.message, 'error'); });
   }
 
   function renderReports() {
