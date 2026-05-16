@@ -31,27 +31,16 @@ function getUserAccess(email) {
   var up = PERMISSIONS[e];
   if (up) {
     return {
-      name: up.name,
-      email: e,
-      dept: up.dept,
+      name: up.name, email: e, dept: up.dept,
       sheet: DEPT_TO_SHEET[up.dept] || up.dept,
-      role: up.role,
-      mobile: up.mobile || '',
+      role: up.role, mobile: up.mobile || '',
       isFullAccess: (up.role === 'admin' || up.dept === 'IT' || up.dept === 'Management')
     };
   }
   var domain = e.split('@')[1];
   var domainDept = DOMAIN_ACCESS[domain];
   if (domainDept) {
-    return {
-      name: e,
-      email: e,
-      dept: domainDept,
-      sheet: DEPT_TO_SHEET[domainDept] || domainDept,
-      role: 'dept',
-      mobile: '',
-      isFullAccess: false
-    };
+    return { name: e, email: e, dept: domainDept, sheet: DEPT_TO_SHEET[domainDept] || domainDept, role: 'dept', mobile: '', isFullAccess: false };
   }
   return null;
 }
@@ -61,20 +50,49 @@ function checkApiAuth(e) {
   return token === getApiToken();
 }
 
+// ===== NOTIFICATIONS SHEET =====
+function ensureNotificationsSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var s = ss.getSheetByName('_Notifications');
+  if (!s) {
+    s = ss.insertSheet('_Notifications');
+    s.getRange(1, 1, 1, 7).setValues([['Timestamp', 'User Email', 'Type', 'Message', 'Task ID', 'Dept', 'Read']]);
+    s.getRange(1, 1, 1, 7).setFontWeight('bold');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+function writeNotification(userEmail, type, message, taskId, dept) {
+  try {
+    var s = ensureNotificationsSheet();
+    s.appendRow([new Date(), userEmail, type, message, taskId || '', dept || '', 'No']);
+  } catch (e) { Logger.log('writeNotification error: ' + e.toString()); }
+}
+
+// ===== COMMENTS SHEET =====
+function ensureCommentsSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var s = ss.getSheetByName('_Comments');
+  if (!s) {
+    s = ss.insertSheet('_Comments');
+    s.getRange(1, 1, 1, 7).setValues([['Timestamp', 'User Email', 'User Name', 'Dept', 'Task Row', 'Task Dept', 'Comment']]);
+    s.getRange(1, 1, 1, 7).setFontWeight('bold');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
 function doGet(e) {
   var callback = e.parameter && e.parameter.callback ? e.parameter.callback : null;
 
   function json(data) {
     var out = ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
-    if (callback) {
-      out = ContentService.createTextOutput(callback + '(' + JSON.stringify(data) + ')').setMimeType(ContentService.MimeType.JAVASCRIPT);
-    }
+    if (callback) out = ContentService.createTextOutput(callback + '(' + JSON.stringify(data) + ')').setMimeType(ContentService.MimeType.JAVASCRIPT);
     return out;
   }
 
-  function err(msg, code) {
-    return json({ success: false, error: msg, code: code || 400 });
-  }
+  function err(msg, code) { return json({ success: false, error: msg, code: code || 400 }); }
 
   if (!checkApiAuth(e)) return err('Invalid or missing API token', 401);
 
@@ -96,7 +114,7 @@ function doGet(e) {
 
       case 'departments': {
         var depts = user.isFullAccess ? ALL_DEPTS : [user.sheet];
-        return json({ success: true, data: depts, isFullAccess: user.isFullAccess });
+        return json({ success: true, data: depts, isFullAccess: user.isFullAccess, userDept: user.sheet });
       }
 
       case 'employees': {
@@ -105,14 +123,9 @@ function doGet(e) {
         for (var i = 0; i < staffNames.length; i++) {
           var name = staffNames[i];
           var dept = getStaffDept(name);
-          var mobile = '';
-          var empEmail = '';
+          var mobile = '', empEmail = '';
           for (var em in PERMISSIONS) {
-            if (PERMISSIONS[em].name === name) {
-              mobile = PERMISSIONS[em].mobile || '';
-              empEmail = em;
-              break;
-            }
+            if (PERMISSIONS[em].name === name) { mobile = PERMISSIONS[em].mobile || ''; empEmail = em; break; }
           }
           employees.push({ name: name, dept: dept || '', mobile: mobile, email: empEmail });
         }
@@ -121,16 +134,16 @@ function doGet(e) {
 
       case 'tasks': {
         var dept = e.parameter.dept || user.sheet;
-        if (!user.isFullAccess && dept !== user.sheet) return err('Access denied: you can only view your own department', 403);
-
+        if (!user.isFullAccess && dept !== user.sheet) return err('Access denied', 403);
         var status = e.parameter.status || '';
         var search = e.parameter.search || '';
         var offset = parseInt(e.parameter.offset, 10) || 0;
         var limit = Math.min(parseInt(e.parameter.limit, 10) || 200, 500);
+        var sortBy = e.parameter.sortBy || '';
+        var sortDir = e.parameter.sortDir || 'asc';
 
         var sheet = ss.getSheetByName(dept);
-        if (!sheet) return err('Department sheet not found: ' + dept);
-
+        if (!sheet) return err('Department not found: ' + dept);
         var lastRow = sheet.getLastRow();
         if (lastRow < 2) return json({ success: true, data: [], total: 0, dept: dept });
 
@@ -142,16 +155,13 @@ function doGet(e) {
           var rowData = data[r];
           var taskName = (rowData[1] || '').toString().trim();
           if (!taskName) continue;
-
           var statusVal = (rowData[3] || '').toString().trim();
           if (status && status !== statusVal) continue;
-
           if (search) {
             var s = search.toLowerCase();
             var haystack = (taskName + ' ' + (rowData[0] || '') + ' ' + (rowData[5] || '')).toLowerCase();
             if (haystack.indexOf(s) === -1) continue;
           }
-
           tasks.push({
             row: row, taskId: (rowData[0] || '').toString().trim(), taskName: taskName,
             priority: (rowData[2] || '').toString().trim(), status: statusVal,
@@ -169,6 +179,23 @@ function doGet(e) {
           });
         }
 
+        // Sort
+        if (sortBy === 'dueDate' || sortBy === 'createdDate' || sortBy === 'priority' || sortBy === 'status') {
+          tasks.sort(function(a, b) {
+            var va = a[sortBy] || '', vb = b[sortBy] || '';
+            if (sortBy === 'priority') {
+              var order = { 'Urgent': 0, 'High': 1, 'Medium': 2, 'Low': 3 };
+              va = order[va] !== undefined ? order[va] : 99;
+              vb = order[vb] !== undefined ? order[vb] : 99;
+            } else if (sortBy === 'dueDate' || sortBy === 'createdDate') {
+              if (va && vb) { va = va.split('/').reverse().join(''); vb = vb.split('/').reverse().join(''); }
+            }
+            if (va < vb) return sortDir === 'desc' ? 1 : -1;
+            if (va > vb) return sortDir === 'desc' ? -1 : 1;
+            return 0;
+          });
+        }
+
         return json({ success: true, data: tasks.slice(offset, offset + limit), total: tasks.length, dept: dept });
       }
 
@@ -177,16 +204,12 @@ function doGet(e) {
         var row = parseInt(e.parameter.row, 10) || 0;
         if (!dept || !row) return err('dept and row required');
         if (!user.isFullAccess && dept !== user.sheet) return err('Access denied', 403);
-
         var sheet = ss.getSheetByName(dept);
         if (!sheet) return err('Department not found: ' + dept);
-
         var data = sheet.getRange(row, 1, 1, 21).getValues()[0];
         if (!data || !(data[1] || '').toString().trim()) return err('Task not found at row ' + row);
-
         return json({
-          success: true,
-          data: {
+          success: true, data: {
             row: row, dept: dept, taskId: (data[0] || '').toString().trim(), taskName: (data[1] || '').toString().trim(),
             priority: (data[2] || '').toString().trim(), status: (data[3] || '').toString().trim(),
             assignor: (data[4] || '').toString().trim(), assignee: (data[5] || '').toString().trim(),
@@ -208,15 +231,12 @@ function doGet(e) {
       case 'dashboard': {
         var result = { departments: {}, totals: { total: 0, open: 0, inProgress: 0, completed: 0, overdue: 0, onHold: 0, cancelled: 0 } };
         var depts = user.isFullAccess ? ALL_DEPTS : [user.sheet];
-
         for (var d = 0; d < depts.length; d++) {
           var dept = depts[d];
           var sheet = ss.getSheetByName(dept);
           if (!sheet || sheet.getLastRow() < 2) continue;
-
           var data = sheet.getRange(2, 2, sheet.getLastRow() - 1, 15).getValues();
           var deptStats = { total: 0, open: 0, inProgress: 0, completed: 0, overdue: 0, onHold: 0, cancelled: 0 };
-
           for (var r = 0; r < data.length; r++) {
             if (!(data[r][0] || '').toString().trim()) continue;
             deptStats.total++;
@@ -229,7 +249,6 @@ function doGet(e) {
             else if (s === 'Cancelled') deptStats.cancelled++;
             if (lapse === 'OVERDUE') deptStats.overdue++;
           }
-
           result.departments[dept] = deptStats;
           result.totals.total += deptStats.total;
           result.totals.open += deptStats.open;
@@ -239,7 +258,6 @@ function doGet(e) {
           result.totals.onHold += deptStats.onHold;
           result.totals.cancelled += deptStats.cancelled;
         }
-
         return json({ success: true, data: result, isFullAccess: user.isFullAccess, userDept: user.sheet });
       }
 
@@ -252,15 +270,12 @@ function doGet(e) {
       case 'reports': {
         var depts = user.isFullAccess ? ALL_DEPTS : [user.sheet];
         var reportData = {};
-
         for (var d = 0; d < depts.length; d++) {
           var dept = depts[d];
           var sheet = ss.getSheetByName(dept);
           if (!sheet || sheet.getLastRow() < 2) continue;
-
           var data = sheet.getRange(2, 2, sheet.getLastRow() - 1, 15).getValues();
           var deptData = { total: 0, completed: 0, overdue: 0, inProgress: 0, open: 0 };
-
           for (var r = 0; r < data.length; r++) {
             if (!(data[r][0] || '').toString().trim()) continue;
             deptData.total++;
@@ -271,11 +286,137 @@ function doGet(e) {
             if (s === 'Open') deptData.open++;
             if (lapse === 'OVERDUE') deptData.overdue++;
           }
-
           reportData[dept] = deptData;
         }
-
         return json({ success: true, data: reportData, isFullAccess: user.isFullAccess, userDept: user.sheet });
+      }
+
+      // === NEW: Calendar view ===
+      case 'calendar': {
+        var dept = e.parameter.dept || '';
+        var month = parseInt(e.parameter.month, 10) || (new Date().getMonth() + 1);
+        var year = parseInt(e.parameter.year, 10) || new Date().getFullYear();
+        var depts = [];
+        if (dept && (user.isFullAccess || dept === user.sheet)) depts.push(dept);
+        else depts = user.isFullAccess ? ALL_DEPTS : [user.sheet];
+
+        var result = {};
+        for (var d = 0; d < depts.length; d++) {
+          var sheet = ss.getSheetByName(depts[d]);
+          if (!sheet || sheet.getLastRow() < 2) continue;
+          var data = sheet.getRange(2, 2, sheet.getLastRow() - 1, 15).getValues();
+          for (var r = 0; r < data.length; r++) {
+            if (!(data[r][0] || '').toString().trim()) continue;
+            var due = data[r][9]; // Col K = Due Date (0-indexed col 9 in our range)
+            if (!due || typeof due !== 'object') continue;
+            var dDate = new Date(due);
+            if (dDate.getMonth() + 1 !== month || dDate.getFullYear() !== year) continue;
+            var key = dDate.getDate();
+            if (!result[key]) result[key] = [];
+            result[key].push({
+              taskName: (data[r][0] || '').toString().trim(), status: (data[r][2] || '').toString().trim(),
+              dept: depts[d], due: Utilities.formatDate(dDate, Session.getScriptTimeZone(), 'dd/MM/yyyy'),
+              priority: (data[r][1] || '').toString().trim()
+            });
+          }
+        }
+        return json({ success: true, data: result, month: month, year: year });
+      }
+
+      // === NEW: Search all departments ===
+      case 'searchAll': {
+        if (!user.isFullAccess) return err('Access denied: admin only', 403);
+        var q = (e.parameter.q || '').toLowerCase().trim();
+        if (!q) return json({ success: true, data: [] });
+        var results = [];
+        for (var d = 0; d < ALL_DEPTS.length; d++) {
+          var sheet = ss.getSheetByName(ALL_DEPTS[d]);
+          if (!sheet || sheet.getLastRow() < 2) continue;
+          var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues();
+          for (var r = 0; r < data.length; r++) {
+            if (!(data[r][1] || '').toString().trim()) continue;
+            var haystack = ((data[r][1] || '') + ' ' + (data[r][0] || '') + ' ' + (data[r][5] || '') + ' ' + (data[r][4] || '')).toLowerCase();
+            if (haystack.indexOf(q) !== -1) {
+              results.push({
+                row: r + 2, dept: ALL_DEPTS[d], taskId: (data[r][0] || '').toString().trim(),
+                taskName: (data[r][1] || '').toString().trim(), status: (data[r][3] || '').toString().trim(),
+                assignee: (data[r][5] || '').toString().trim(), assignor: (data[r][4] || '').toString().trim()
+              });
+            }
+          }
+        }
+        return json({ success: true, data: results, total: results.length });
+      }
+
+      // === NEW: Notifications ===
+      case 'notifications': {
+        var s = ss.getSheetByName('_Notifications');
+        if (!s || s.getLastRow() < 2) return json({ success: true, data: [] });
+        var data = s.getRange(2, 1, s.getLastRow() - 1, 7).getValues();
+        var notifs = [];
+        for (var r = data.length - 1; r >= 0; r--) {
+          if ((data[r][1] || '').toString().toLowerCase().trim() !== email) continue;
+          notifs.push({
+            ts: data[r][0] ? Utilities.formatDate(new Date(data[r][0]), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : '',
+            type: (data[r][2] || '').toString().trim(),
+            message: (data[r][3] || '').toString().trim(),
+            taskId: (data[r][4] || '').toString().trim(),
+            dept: (data[r][5] || '').toString().trim(),
+            read: (data[r][6] || '').toString().trim() === 'Yes'
+          });
+        }
+        var unread = notifs.filter(function(n){ return !n.read; }).length;
+        return json({ success: true, data: notifs.slice(0, 50), unread: unread });
+      }
+
+      // === NEW: Comments ===
+      case 'comments': {
+        var dept = e.parameter.dept || '';
+        var row = e.parameter.row || '';
+        if (!dept || !row) return json({ success: true, data: [] });
+        var s = ensureCommentsSheet();
+        if (s.getLastRow() < 2) return json({ success: true, data: [] });
+        var data = s.getRange(2, 1, s.getLastRow() - 1, 7).getValues();
+        var comments = [];
+        for (var r = 0; r < data.length; r++) {
+          if ((data[r][3] || '').toString().trim() === dept && (data[r][4] || '').toString() === String(row)) {
+            comments.push({
+              ts: data[r][0] ? Utilities.formatDate(new Date(data[r][0]), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : '',
+              user: (data[r][2] || '').toString().trim(),
+              text: (data[r][6] || '').toString().trim()
+            });
+          }
+        }
+        return json({ success: true, data: comments });
+      }
+
+      // === NEW: Yearly Report ===
+      case 'yearlyReport': {
+        var year = parseInt(e.parameter.year, 10) || new Date().getFullYear();
+        var depts = user.isFullAccess ? ALL_DEPTS : [user.sheet];
+        var report = {};
+        for (var d = 0; d < depts.length; d++) {
+          var sheet = ss.getSheetByName(depts[d]);
+          if (!sheet || sheet.getLastRow() < 2) continue;
+          var data = sheet.getRange(2, 2, sheet.getLastRow() - 1, 11).getValues();
+          var deptData = { total: 0, completed: 0, overdue: 0, byMonth: {} };
+          for (var m = 1; m <= 12; m++) deptData.byMonth[m] = { total: 0, completed: 0 };
+          for (var r = 0; r < data.length; r++) {
+            if (!(data[r][0] || '').toString().trim()) continue;
+            var created = data[r][8];
+            var cYear = created && typeof created === 'object' ? created.getFullYear() : 0;
+            if (cYear !== year) continue;
+            var s = (data[r][2] || '').toString().trim();
+            var lapse = (data[r][14] || '').toString().trim();
+            var cMonth = created && typeof created === 'object' ? created.getMonth() + 1 : 1;
+            deptData.total++;
+            deptData.byMonth[cMonth].total++;
+            if (s === 'Completed') { deptData.completed++; deptData.byMonth[cMonth].completed++; }
+            if (lapse === 'OVERDUE') deptData.overdue++;
+          }
+          report[depts[d]] = deptData;
+        }
+        return json({ success: true, data: report, year: year, isFullAccess: user.isFullAccess, userDept: user.sheet });
       }
 
       default:
@@ -287,21 +428,12 @@ function doGet(e) {
 }
 
 function doPost(e) {
-  function json(data) {
-    return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
-  }
-
-  function err(msg, code) {
-    return json({ success: false, error: msg, code: code || 400 });
-  }
+  function json(data) { return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON); }
+  function err(msg, code) { return json({ success: false, error: msg, code: code || 400 }); }
 
   var postData = {};
   if (e.postData && e.postData.contents) {
-    try {
-      postData = JSON.parse(e.postData.contents);
-    } catch (e2) {
-      return err('Invalid JSON body');
-    }
+    try { postData = JSON.parse(e.postData.contents); } catch (e2) { return err('Invalid JSON body'); }
   }
 
   var token = postData.token || (e.parameter && e.parameter.token) || '';
@@ -319,8 +451,7 @@ function doPost(e) {
     switch (action) {
       case 'createTask': {
         var dept = postData.dept || user.sheet;
-        if (!user.isFullAccess && dept !== user.sheet) return err('Access denied: cannot create tasks in other departments', 403);
-
+        if (!user.isFullAccess && dept !== user.sheet) return err('Access denied', 403);
         var taskName = (postData.taskName || '').toString().trim();
         var assignee = (postData.assignee || '').toString().trim();
         var assignor = (postData.assignor || user.name || 'Mobile App').toString().trim();
@@ -329,7 +460,6 @@ function doPost(e) {
         var dueDate = postData.dueDate || '';
         var recurring = (postData.recurring || 'No').toString().trim();
         var recurringType = (postData.recurringType || '').toString().trim();
-
         if (!dept) return err('dept is required');
         if (!taskName) return err('taskName is required');
         if (!assignee) return err('assignee is required');
@@ -337,17 +467,14 @@ function doPost(e) {
         var sheet = ss.getSheetByName(dept);
         if (!sheet) return err('Department sheet not found: ' + dept);
 
-        // Find first empty row in column B (task names)
-        // ARRAYFORMULA inflates getLastRow() to 5000, so we scan for actual empty cell
-        var maxFormulaRow = sheet.getLastRow();
-        var bValues = sheet.getRange(2, 2, maxFormulaRow + 100, 1).getValues();
-        var newRow = bValues.length + 2; // fallback: append at end
+        // Find first empty row
+        var maxRow = sheet.getLastRow();
+        var bValues = sheet.getRange(2, 2, Math.max(maxRow + 100, 500), 1).getValues();
+        var newRow = 2;
         for (var br = 0; br < bValues.length; br++) {
-          if (!bValues[br][0] || bValues[br][0].toString().trim() === '') {
-            newRow = br + 2;
-            break;
-          }
+          if (!bValues[br][0] || bValues[br][0].toString().trim() === '') { newRow = br + 2; break; }
         }
+
         sheet.getRange(newRow, 2).setValue(taskName);
         sheet.getRange(newRow, 3).setValue(priority);
         sheet.getRange(newRow, 4).setValue('Open');
@@ -356,21 +483,20 @@ function doPost(e) {
         sheet.getRange(newRow, 13).setValue(recurring);
         if (recurring === 'Yes' && recurringType) sheet.getRange(newRow, 14).setValue(recurringType);
         if (description) sheet.getRange(newRow, 18).setValue(description);
-
         if (dueDate) {
           var pts = dueDate.split('/');
           if (pts.length === 3) sheet.getRange(newRow, 11).setValue(new Date(parseInt(pts[2], 10), parseInt(pts[1], 10) - 1, parseInt(pts[0], 10)));
         }
-
         SpreadsheetApp.flush();
         Utilities.sleep(1500);
         autoGenerateTaskId(sheet, newRow);
 
+        // Notify assignee
+        var assigneeEmail = sheet.getRange(newRow, 7).getValue();
+        if (assigneeEmail) writeNotification(assigneeEmail, 'assignment', 'New task assigned: ' + taskName, sheet.getRange(newRow, 1).getValue(), dept);
+
         var data = sheet.getRange(newRow, 1, 1, 21).getValues()[0];
-        return json({
-          success: true,
-          data: { row: newRow, dept: dept, taskId: (data[0] || '').toString().trim(), taskName: taskName, status: 'Open' }
-        });
+        return json({ success: true, data: { row: newRow, dept: dept, taskId: (data[0] || '').toString().trim(), taskName: taskName, status: 'Open' } });
       }
 
       case 'updateTask': {
@@ -378,17 +504,10 @@ function doPost(e) {
         var row = parseInt(postData.row, 10) || 0;
         if (!dept || !row) return err('dept and row required');
         if (!user.isFullAccess && dept !== user.sheet) return err('Access denied', 403);
-
         var sheet = ss.getSheetByName(dept);
         if (!sheet) return err('Department not found: ' + dept);
-
         var updates = postData.updates || {};
-        var fieldMap = {
-          taskName: 2, priority: 3, status: 4, assignor: 5,
-          assignee: 6, dueDate: 11, completedDate: 12,
-          recurring: 13, recurringType: 14,
-          description: 18, remarks: 17, rescheduleDate: 19, rescheduleReason: 20
-        };
+        var fieldMap = { taskName: 2, priority: 3, status: 4, assignor: 5, assignee: 6, dueDate: 11, completedDate: 12, recurring: 13, recurringType: 14, description: 18, remarks: 17, rescheduleDate: 19, rescheduleReason: 20 };
 
         for (var field in updates) {
           if (fieldMap[field] && updates.hasOwnProperty(field)) {
@@ -402,7 +521,51 @@ function doPost(e) {
           }
         }
 
+        // Notify assignee on status change
+        if (updates.status) {
+          var taskName = sheet.getRange(row, 2).getValue();
+          var assigneeEmail = sheet.getRange(row, 7).getValue();
+          if (assigneeEmail) writeNotification(assigneeEmail, 'status', 'Task "' + taskName + '" status changed to ' + updates.status, sheet.getRange(row, 1).getValue(), dept);
+        }
+
         return json({ success: true, message: 'Task updated' });
+      }
+
+      // === NEW: Add comment ===
+      case 'addComment': {
+        var dept = postData.dept || '';
+        var row = postData.row || '';
+        var text = (postData.text || '').toString().trim();
+        if (!dept || !row || !text) return err('dept, row, and text required');
+        var s = ensureCommentsSheet();
+        s.appendRow([new Date(), email, user.name, dept, String(row), dept, text]);
+        return json({ success: true, message: 'Comment added' });
+      }
+
+      // === NEW: Mark notification read ===
+      case 'markRead': {
+        var index = parseInt(postData.index, 10);
+        var s = ss.getSheetByName('_Notifications');
+        if (!s || index < 0) return json({ success: true });
+        var rowNum = index + 2; // +2 for header + 0-index
+        if (rowNum <= s.getLastRow()) {
+          s.getRange(rowNum, 7).setValue('Yes');
+        }
+        return json({ success: true });
+      }
+
+      // === NEW: Mark all notifications read ===
+      case 'markAllRead': {
+        var s = ss.getSheetByName('_Notifications');
+        if (s && s.getLastRow() > 1) {
+          var data = s.getRange(2, 1, s.getLastRow() - 1, 7).getValues();
+          for (var r = 0; r < data.length; r++) {
+            if ((data[r][1] || '').toString().toLowerCase().trim() === email && (data[r][6] || '').toString().trim() !== 'Yes') {
+              s.getRange(r + 2, 7).setValue('Yes');
+            }
+          }
+        }
+        return json({ success: true });
       }
 
       default:
@@ -413,20 +576,13 @@ function doPost(e) {
   }
 }
 
-// Show API token in modal dialog
 function showApiToken() {
   var token = getApiToken();
-  var html = '<html><body style="font-family:sans-serif;padding:20px;">';
-  html += '<h2>PWA API Configuration</h2>';
-  html += '<p><strong>API Token:</strong></p>';
+  var html = '<html><body style="font-family:sans-serif;padding:20px;"><h2>PWA API Configuration</h2><p><strong>API Token:</strong></p>';
   html += '<input type="text" value="' + token + '" style="width:100%;padding:8px;font-size:14px;" readonly onclick="this.select()">';
-  html += '<p style="color:#666;font-size:12px;margin-top:20px;">';
-  html += 'Use this token with your email in the PWA login screen.<br>';
-  html += 'Keep it secret.<br>';
-  html += 'Run <strong>Reset PWA API Token</strong> to generate a new one.';
-  html += '</p></body></html>';
-  var ui = HtmlService.createHtmlOutput(html).setWidth(450).setHeight(250);
-  SpreadsheetApp.getUi().showModalDialog(ui, 'PWA API Token');
+  html += '<p style="color:#666;font-size:12px;margin-top:20px;">Use this token with your email in the PWA login screen. Keep it secret.</p>';
+  html += '<p>Run <strong>Reset PWA API Token</strong> to generate a new one.</p></body></html>';
+  SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(450).setHeight(250), 'PWA API Token');
 }
 
 function resetPwaApiToken() {
@@ -435,9 +591,7 @@ function resetPwaApiToken() {
 }
 
 // ===== MENU UPDATE =====
-// Add these items to the existing `onOpen()` function
-// before the final .addToUi():
-//
+// Add these to existing `onOpen()` before .addToUi():
 //   .addSeparator()
 //   .addItem('Show PWA API Token', 'showApiToken')
 //   .addItem('Reset PWA API Token', 'resetPwaApiToken');

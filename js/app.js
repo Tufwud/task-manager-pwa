@@ -45,6 +45,33 @@
   function cacheGet(key) { var c = cache[key]; if (c && Date.now() < c.expiry) return c.data; return null; }
   function cacheSet(key, data, ttlSec) { cache[key] = { data: data, expiry: Date.now() + (ttlSec || 300) * 1000 }; }
 
+  // Notification state
+  var notifState = { unread: 0, list: [], pollTimer: null };
+
+  function startNotifPoll() {
+    if (notifState.pollTimer) clearInterval(notifState.pollTimer);
+    notifState.pollTimer = setInterval(pollNotifications, 60000);
+    pollNotifications();
+  }
+
+  function pollNotifications() {
+    if (!isLoggedIn()) return;
+    apiGet({ action: 'notifications' }).then(function(r) {
+      if (r && r.success) {
+        var prev = notifState.unread;
+        notifState.list = r.data;
+        notifState.unread = r.unread;
+        if (notifState.unread > prev && prev > 0) {
+          toast('You have ' + notifState.unread + ' new notification' + (notifState.unread > 1 ? 's' : ''), '');
+        }
+      }
+    }).catch(function() {});
+  }
+
+  function stopNotifPoll() {
+    if (notifState.pollTimer) { clearInterval(notifState.pollTimer); notifState.pollTimer = null; }
+  }
+
   function showLoading(show) {
     loadingEl.classList.toggle('hidden', !show);
   }
@@ -185,10 +212,15 @@
   function renderHeader(title, showBack) {
     var header = document.createElement('div');
     header.className = 'header';
+    var notifHtml = '<button id="notif-bell" style="background:none;border:none;color:white;font-size:20px;cursor:pointer;position:relative;padding:4px 8px;">\uD83D\uDD14' +
+      (notifState.unread > 0 ? '<span style="position:absolute;top:-2px;right:2px;background:#e53935;color:white;font-size:10px;padding:1px 5px;border-radius:10px;font-weight:600;">' + (notifState.unread > 99 ? '99+' : notifState.unread) + '</span>' : '') +
+    '</button>';
+    var searchHtml = state.isFullAccess ? '<button id="search-btn" style="background:none;border:none;color:white;font-size:18px;cursor:pointer;padding:4px 8px;">\uD83D\uDD0D</button>' : '';
     header.innerHTML =
       '<button class="back-btn' + (showBack ? ' show' : '') + '" id="back-btn">&larr;</button>' +
       '<h1>' + esc(title) + '</h1>' +
-      '<div style="font-size:11px;opacity:0.8;white-space:nowrap;">' + (state.user ? esc(state.user.name.split(' ')[0]) : '') + '</div>';
+      searchHtml + notifHtml +
+      '<button class="logout-btn" id="logout-btn" style="display:none;">Logout</button>';
     return header;
   }
 
@@ -199,12 +231,14 @@
     var items = [
       { id: 'dashboard', icon: '\u2302', label: 'Dashboard' },
       { id: 'tasks', icon: '\u2630', label: 'Tasks' },
+      { id: 'calendar', icon: '\uD83D\uDCC5', label: 'Calendar' },
       { id: 'reports', icon: '\u2261', label: 'Reports' },
       { id: 'profile', icon: '\u263C', label: 'Profile' }
     ];
     tabs.innerHTML = items.map(function(t) {
+      var badge = (t.id === 'profile' && notifState.unread > 0) ? '<span class="badge">' + notifState.unread + '</span>' : '';
       return '<button class="tab' + (t.id === active ? ' active' : '') + '" data-view="' + t.id + '">' +
-        '<span class="tab-icon">' + t.icon + '</span><span>' + t.label + '</span></button>';
+        '<div class="tab-wrap">' + badge + '<span class="tab-icon">' + t.icon + '</span></div><span>' + t.label + '</span></button>';
     }).join('');
     tabs.addEventListener('click', function(e) {
       var btn = e.target.closest('.tab');
@@ -214,6 +248,7 @@
       if (view === 'tasks') loadTasks();
       else if (view === 'reports') loadReports();
       else if (view === 'dashboard') loadDashboard();
+      else if (view === 'calendar') renderCalendar();
       else if (view === 'profile') render();
     });
     return tabs;
@@ -224,6 +259,115 @@
     main.className = 'main';
     main.innerHTML = html;
     return main;
+  }
+
+  // ===== NOTIFICATION PANEL =====
+  function renderNotifPanel() {
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    var content = document.createElement('div');
+    content.className = 'modal-content';
+    var html = '<div class="flex-between"><h2>Notifications</h2><button class="modal-close" id="notif-close">\u00D7</button></div>';
+    if (notifState.unread > 0) html += '<button class="btn btn-sm btn-primary" id="mark-all-read" style="width:100%;margin-bottom:12px;">Mark All Read</button>';
+    if (notifState.list.length === 0) html += '<div class="empty-state"><p>No notifications</p></div>';
+    notifState.list.forEach(function(n, i) {
+      html += '<div class="card" style="padding:10px;margin-bottom:6px;' + (n.read ? 'opacity:0.6;' : 'border-left:3px solid var(--primary);') + '">' +
+        '<div class="flex-between"><span class="status-badge ' + (n.type === 'assignment' ? 'open' : 'overdue') + '" style="font-size:10px;">' + esc(n.type) + '</span>' +
+        '<span class="text-muted" style="font-size:11px;">' + esc(n.ts) + '</span></div>' +
+        '<div style="font-size:13px;margin:4px 0;">' + esc(n.message) + '</div>' +
+        (n.taskId ? '<div style="font-size:11px;color:var(--gray);">' + esc(n.taskId) + ' | ' + esc(n.dept) + '</div>' : '') +
+      '</div>';
+    });
+    content.innerHTML = html;
+    overlay.appendChild(content);
+    document.body.appendChild(overlay);
+
+    document.getElementById('notif-close').addEventListener('click', function() { overlay.remove(); });
+    var markBtn = document.getElementById('mark-all-read');
+    if (markBtn) markBtn.addEventListener('click', function() {
+      apiPost({ action: 'markAllRead' }).then(function() { notifState.unread = 0; overlay.remove(); pollNotifications(); render(); });
+    });
+  }
+
+  // ===== CALENDAR VIEW =====
+  var calendarState = { month: new Date().getMonth() + 1, year: new Date().getFullYear(), data: null };
+
+  function renderCalendar() {
+    showLoading(true);
+    apiGet({ action: 'calendar', month: calendarState.month, year: calendarState.year }).then(function(r) {
+      showLoading(false);
+      if (!r || !r.success) { toast('Calendar error', 'error'); return; }
+      calendarState.data = r.data;
+      state.view = 'calendar';
+      app.innerHTML = '';
+      var header = renderHeader('Calendar', false);
+      app.appendChild(header);
+
+      var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      var html = '<div class="card" style="padding:12px;">' +
+        '<div class="flex-between" style="margin-bottom:12px;">' +
+          '<button class="btn btn-sm btn-outline" id="cal-prev">&larr; ' + monthNames[(calendarState.month - 2 + 12) % 12] + '</button>' +
+          '<strong>' + monthNames[calendarState.month - 1] + ' ' + calendarState.year + '</strong>' +
+          '<button class="btn btn-sm btn-outline" id="cal-next">' + monthNames[calendarState.month % 12] + ' &rarr;</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:12px;">' +
+          ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(d){ return '<div style="font-weight:600;padding:4px 0;color:var(--gray);">' + d + '</div>'; }).join('') +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:13px;" id="cal-grid">';
+
+      var firstDay = new Date(calendarState.year, calendarState.month - 1, 1).getDay();
+      var daysInMonth = new Date(calendarState.year, calendarState.month, 0).getDate();
+      for (var i = 0; i < firstDay; i++) html += '<div></div>';
+      for (var d = 1; d <= daysInMonth; d++) {
+        var tasks = calendarState.data[d] || [];
+        var isToday = d === new Date().getDate() && calendarState.month === (new Date().getMonth() + 1) && calendarState.year === new Date().getFullYear();
+        var hasOverdue = tasks.some(function(t){ return t.status !== 'Completed' && new Date() > new Date(t.due.split('/').reverse().join('-')) || t.status === 'OVERDUE'; });
+        html += '<div class="cal-day' + (isToday ? ' cal-today' : '') + '" data-day="' + d + '" style="padding:4px 0;border-radius:4px;cursor:pointer;' + (isToday ? 'background:var(--primary);color:white;font-weight:600;' : tasks.length > 0 ? 'background:#f0f4ff;' : '') + '">' +
+          '<div>' + d + '</div>' +
+          (tasks.length > 0 ? '<div style="display:flex;justify-content:center;gap:2px;margin-top:2px;">' +
+            (tasks.some(function(t){ return t.status === 'Completed'; }) ? '<span style="width:5px;height:5px;border-radius:50%;background:var(--success);display:inline-block;"></span>' : '') +
+            (hasOverdue ? '<span style="width:5px;height:5px;border-radius:50%;background:var(--danger);display:inline-block;"></span>' : '') +
+            (!hasOverdue && tasks.some(function(t){ return t.status !== 'Completed'; }) ? '<span style="width:5px;height:5px;border-radius:50%;background:var(--primary);display:inline-block;"></span>' : '') +
+          '</div>' : '') +
+        '</div>';
+      }
+      html += '</div></div>';
+
+      html += '<div id="cal-task-list"></div>';
+
+      var main = renderMain(html);
+      app.appendChild(main);
+      app.appendChild(renderTabs('calendar'));
+
+      // Day click
+      main.addEventListener('click', function(e) {
+        var dayEl = e.target.closest('.cal-day');
+        if (!dayEl) return;
+        var day = dayEl.getAttribute('data-day');
+        var tasks = calendarState.data[day] || [];
+        if (tasks.length === 0) { document.getElementById('cal-task-list').innerHTML = '<div class="text-muted text-center" style="padding:16px;">No tasks due this day</div>'; return; }
+        var html = '';
+        tasks.forEach(function(t) {
+          html += '<div class="task-item border-' + (t.status === 'Completed' ? 'completed' : '') + '" style="cursor:default;">' +
+            '<div class="ti-top"><span class="ti-name">' + esc(t.taskName) + '</span><span class="status-badge ' + (t.status === 'Completed' ? 'completed' : 'overdue') + '">' + esc(t.status) + '</span></div>' +
+            '<div class="ti-meta"><span>' + esc(t.dept) + '</span>' + (t.priority ? '<span class="priority-badge">' + esc(t.priority) + '</span>' : '') + '</div>' +
+          '</div>';
+        });
+        document.getElementById('cal-task-list').innerHTML = html;
+      });
+
+      document.getElementById('cal-prev').addEventListener('click', function() {
+        if (calendarState.month === 1) { calendarState.month = 12; calendarState.year--; }
+        else calendarState.month--;
+        renderCalendar();
+      });
+      document.getElementById('cal-next').addEventListener('click', function() {
+        if (calendarState.month === 12) { calendarState.month = 1; calendarState.year++; }
+        else calendarState.month++;
+        renderCalendar();
+      });
+    }).catch(function(e) { showLoading(false); toast('Error: ' + e.message, 'error'); });
   }
 
   // ===== PROFILE =====
@@ -337,17 +481,24 @@
   }
 
   // ===== TASKS =====
-  function loadTasks(dept, status, search) {
+  var sortState = { by: '', dir: 'asc' };
+
+  function loadTasks(dept, status, search, sortBy, sortDir) {
     dept = dept || state.currentDept;
     if (!dept && state.departments.length > 0) dept = state.departments[0];
     state.currentDept = dept;
+    sortBy = sortBy || sortState.by;
+    sortDir = sortDir || sortState.dir;
 
-    var cacheKey = 'tasks_' + dept + '_' + (status || '') + '_' + (search || '');
+    var cacheKey = 'tasks_' + dept + '_' + (status || '') + '_' + (search || '') + '_' + sortBy + '_' + sortDir;
     var cached = cacheGet(cacheKey);
     if (cached) { state.tasks = cached.data; state.taskTotal = cached.total; state.view = 'tasks'; render(); showRefresh(true); }
     else showLoading(true);
 
-    apiGet({ action: 'tasks', dept: dept, status: status || '', search: search || '', limit: 200 }).then(function(r) {
+    var params = { action: 'tasks', dept: dept, status: status || '', search: search || '', limit: 200 };
+    if (sortBy) { params.sortBy = sortBy; params.sortDir = sortDir; }
+
+    apiGet(params).then(function(r) {
       showLoading(false); showRefresh(false);
       if (r && r.success) { cacheSet(cacheKey, { data: r.data, total: r.total }, 120); state.tasks = r.data; state.taskTotal = r.total; if (state.view === 'tasks') render(); }
       else if (!cached) { toast('Failed: ' + (r && r.error || 'Unknown'), 'error'); }
@@ -369,6 +520,12 @@
     html += '<div class="task-search">' +
       '<input type="search" id="task-search" placeholder="Search..." value="">' +
       '<select id="status-filter"><option value="">All</option><option value="Open">Open</option><option value="In Progress">In Progress</option><option value="Completed">Completed</option><option value="On Hold">On Hold</option></select>' +
+    '</div>' +
+    '<div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;">' +
+      '<button class="btn btn-sm ' + (sortState.by === 'dueDate' ? 'btn-primary' : 'btn-outline') + ' sort-btn" data-sort="dueDate">Due' + (sortState.by === 'dueDate' ? (sortState.dir === 'asc' ? ' \u2191' : ' \u2193') : '') + '</button>' +
+      '<button class="btn btn-sm ' + (sortState.by === 'priority' ? 'btn-primary' : 'btn-outline') + ' sort-btn" data-sort="priority">Priority' + (sortState.by === 'priority' ? (sortState.dir === 'asc' ? ' \u2191' : ' \u2193') : '') + '</button>' +
+      '<button class="btn btn-sm ' + (sortState.by === 'status' ? 'btn-primary' : 'btn-outline') + ' sort-btn" data-sort="status">Status' + (sortState.by === 'status' ? (sortState.dir === 'asc' ? ' \u2191' : ' \u2193') : '') + '</button>' +
+      '<button class="btn btn-sm ' + (sortState.by === 'createdDate' ? 'btn-primary' : 'btn-outline') + ' sort-btn" data-sort="createdDate">Created' + (sortState.by === 'createdDate' ? (sortState.dir === 'asc' ? ' \u2191' : ' \u2193') : '') + '</button>' +
     '</div></div>';
 
     if (state.tasks.length === 0) {
@@ -406,19 +563,29 @@
     if (deptSelect) {
       deptSelect.addEventListener('change', function() {
         state.currentDept = this.value;
-        loadTasks(state.currentDept, document.getElementById('status-filter').value, document.getElementById('task-search').value.trim());
+        loadTasks(state.currentDept, document.getElementById('status-filter').value, document.getElementById('task-search').value.trim(), sortState.by, sortState.dir);
       });
     }
 
     document.getElementById('status-filter').addEventListener('change', function() {
-      loadTasks(state.currentDept, this.value, document.getElementById('task-search').value.trim());
+      loadTasks(state.currentDept, this.value, document.getElementById('task-search').value.trim(), sortState.by, sortState.dir);
     });
 
     var searchTimer;
     document.getElementById('task-search').addEventListener('input', function() {
       clearTimeout(searchTimer);
       var el = this;
-      searchTimer = setTimeout(function() { loadTasks(state.currentDept, document.getElementById('status-filter').value, el.value.trim()); }, 400);
+      searchTimer = setTimeout(function() { loadTasks(state.currentDept, document.getElementById('status-filter').value, el.value.trim(), sortState.by, sortState.dir); }, 400);
+    });
+
+    // Sort buttons
+    main.querySelectorAll('.sort-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var field = this.getAttribute('data-sort');
+        if (sortState.by === field) sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+        else { sortState.by = field; sortState.dir = 'asc'; }
+        loadTasks(state.currentDept, document.getElementById('status-filter').value, document.getElementById('task-search').value.trim(), sortState.by, sortState.dir);
+      });
     });
 
     main.addEventListener('click', function(e) {
@@ -477,6 +644,16 @@
       html += '</div></div>';
     }
 
+    // Comments section
+    html += '<div class="card" id="comments-section">' +
+      '<div class="card-header"><h3>Comments</h3></div>' +
+      '<div id="comments-list"><div class="text-muted text-center" style="padding:8px;">Loading...</div></div>' +
+      '<div style="display:flex;gap:8px;margin-top:8px;">' +
+        '<input type="text" id="comment-input" placeholder="Add a comment..." style="flex:1;padding:8px 10px;border:1px solid var(--gray-border);border-radius:var(--radius-sm);font-size:13px;">' +
+        '<button class="btn btn-sm btn-primary" id="comment-submit">Post</button>' +
+      '</div>' +
+    '</div>';
+
     var main = renderMain(html);
     app.appendChild(main);
 
@@ -498,6 +675,33 @@
         if (r && r.success) { toast('Updated to ' + newStatus, 'success'); cache = {}; openTaskDetail(task.dept, task.row); }
         else { toast('Update failed: ' + (r && r.error || 'Unknown'), 'error'); }
       }).catch(function(e) { showLoading(false); toast('Error: ' + e.message, 'error'); });
+    });
+
+    // Load comments
+    apiGet({ action: 'comments', dept: task.dept, row: task.row }).then(function(r) {
+      var list = document.getElementById('comments-list');
+      if (!list) return;
+      if (r && r.success && r.data.length > 0) {
+        list.innerHTML = r.data.map(function(c) {
+          return '<div style="padding:6px 0;border-bottom:1px solid var(--gray-light);font-size:13px;">' +
+            '<div class="flex-between"><strong>' + esc(c.user) + '</strong><span class="text-muted" style="font-size:11px;">' + esc(c.ts) + '</span></div>' +
+            '<div style="margin-top:2px;">' + esc(c.text) + '</div></div>';
+        }).join('');
+      } else {
+        list.innerHTML = '<div class="text-muted text-center" style="padding:8px;">No comments yet</div>';
+      }
+    });
+
+    document.getElementById('comment-submit').addEventListener('click', function() {
+      var input = document.getElementById('comment-input');
+      var text = input.value.trim();
+      if (!text) return;
+      input.disabled = true;
+      apiPost({ action: 'addComment', dept: task.dept, row: task.row, text: text }).then(function(r) {
+        input.disabled = false;
+        if (r && r.success) { input.value = ''; openTaskDetail(task.dept, task.row); }
+        else { toast('Failed to add comment', 'error'); }
+      }).catch(function() { input.disabled = false; toast('Error', 'error'); });
     });
   }
 
@@ -581,55 +785,121 @@
     }).catch(function(e) { showLoading(false); showRefresh(false); if (!cached) toast('Error: ' + e.message, 'error'); });
   }
 
+  var yearlyReportState = { year: new Date().getFullYear(), data: null, loading: false };
+
+  function loadYearlyReport(year) {
+    year = year || yearlyReportState.year;
+    yearlyReportState.year = year;
+    yearlyReportState.loading = true;
+    apiGet({ action: 'yearlyReport', year: year }).then(function(r) {
+      yearlyReportState.loading = false;
+      if (r && r.success) { yearlyReportState.data = r.data; if (state.view === 'reports') render(); }
+    }).catch(function() { yearlyReportState.loading = false; });
+  }
+
   function renderReports() {
     app.innerHTML = '';
     app.appendChild(renderHeader('Reports', false));
 
     var html = '';
-    if (state.reports) {
-      var deptNames = Object.keys(state.reports).sort();
-      var grandTotal = 0, grandCompleted = 0, grandOverdue = 0;
-      deptNames.forEach(function(n) { grandTotal += state.reports[n].total; grandCompleted += state.reports[n].completed; grandOverdue += state.reports[n].overdue; });
 
+    // Yearly report toggle
+    html += '<div class="card" style="padding:12px;">' +
+      '<div class="card-header"><h3>Calendar Year Report</h3></div>' +
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">' +
+        '<select id="yr-year" style="flex:1;padding:8px;border:1px solid var(--gray-border);border-radius:var(--radius-sm);font-size:14px;">' +
+          '<option value="2025"' + (yearlyReportState.year === 2025 ? ' selected' : '') + '>2025</option>' +
+          '<option value="2026"' + (yearlyReportState.year === 2026 ? ' selected' : '') + '>2026</option>' +
+        '</select>' +
+        '<button class="btn btn-sm btn-primary" id="yr-load">Load</button>' +
+      '</div>';
+
+    if (yearlyReportState.data) {
+      var deptNames = Object.keys(yearlyReportState.data).sort();
       html += '<div class="stats-grid">' +
-        '<div class="stat-card blue"><div class="num">' + grandTotal + '</div><div class="lbl">Total</div></div>' +
-        '<div class="stat-card green"><div class="num">' + grandCompleted + '</div><div class="lbl">Completed</div></div>' +
-        '<div class="stat-card red"><div class="num">' + grandOverdue + '</div><div class="lbl">Overdue</div></div>' +
-        '<div class="stat-card orange"><div class="num">' + (grandTotal > 0 ? Math.round(grandCompleted/grandTotal*100) : 0) + '%</div><div class="lbl">Completion</div></div>' +
+        '<div class="stat-card blue"><div class="num">' + deptNames.reduce(function(s,n){ return s + yearlyReportState.data[n].total; },0) + '</div><div class="lbl">Total</div></div>' +
+        '<div class="stat-card green"><div class="num">' + deptNames.reduce(function(s,n){ return s + yearlyReportState.data[n].completed; },0) + '</div><div class="lbl">Completed</div></div>' +
+        '<div class="stat-card red"><div class="num">' + deptNames.reduce(function(s,n){ return s + yearlyReportState.data[n].overdue; },0) + '</div><div class="lbl">Overdue</div></div>' +
+        '<div class="stat-card orange"><div class="num">' + yearlyReportState.year + '</div><div class="lbl">Year</div></div>' +
       '</div>';
 
       deptNames.forEach(function(n) {
-        var ds = state.reports[n];
+        var ds = yearlyReportState.data[n];
         if (ds.total === 0) return;
         var compPct = Math.round(ds.completed / ds.total * 100);
         html += '<div class="card report-card">' +
           '<div class="flex-between"><h4>' + esc(n) + '</h4><span class="text-muted">' + ds.total + ' tasks</span></div>' +
           '<div class="report-stat"><span class="rs-label">Completed</span><span class="rs-value green">' + ds.completed + ' (' + compPct + '%)</span></div>' +
           '<div class="report-stat"><span class="rs-label">Overdue</span><span class="rs-value red">' + ds.overdue + '</span></div>' +
-          '<div class="report-stat"><span class="rs-label">In Progress</span><span class="rs-value">' + (ds.inProgress || 0) + '</span></div>' +
-          '<div class="dept-bar mt-8"><span class="name" style="width:auto;text-align:left;">Progress</span><div class="bar-wrap"><div class="bar-fill green" style="width:' + compPct + '%"></div></div><span class="pct">' + compPct + '%</span></div>' +
-        '</div>';
+          '<div class="dept-bar mt-8"><span class="name" style="width:auto;text-align:left;">Progress</span><div class="bar-wrap"><div class="bar-fill green" style="width:' + compPct + '%"></div></div><span class="pct">' + compPct + '%</span></div>';
+
+        // Monthly breakdown mini bars
+        html += '<div style="margin-top:8px;font-size:11px;">';
+        for (var m = 1; m <= 12; m++) {
+          var md = ds.byMonth[m];
+          if (!md || md.total === 0) continue;
+          var mpct = Math.round(md.completed / md.total * 100);
+          html += '<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">' +
+            '<span style="width:24px;flex-shrink:0;">' + ['','J','F','M','A','M','J','J','A','S','O','N','D'][m] + '</span>' +
+            '<div style="flex:1;height:4px;background:var(--gray-light);border-radius:2px;overflow:hidden;">' +
+              '<div style="height:100%;width:' + mpct + '%;background:' + (mpct > 50 ? 'var(--success)' : mpct > 25 ? 'var(--warning)' : 'var(--danger)') + ';border-radius:2px;"></div>' +
+            '</div>' +
+            '<span style="width:32px;text-align:right;">' + md.completed + '/' + md.total + '</span>' +
+          '</div>';
+        }
+        html += '</div></div>';
       });
+    } else if (!yearlyReportState.loading) {
+      // Current dept report summary (existing)
+      html += '</div>';
+      if (state.reports) {
+        var deptNames = Object.keys(state.reports).sort();
+        var grandTotal = 0, grandCompleted = 0, grandOverdue = 0;
+        deptNames.forEach(function(n) { grandTotal += state.reports[n].total; grandCompleted += state.reports[n].completed; grandOverdue += state.reports[n].overdue; });
+
+        html += '<div class="stats-grid">' +
+          '<div class="stat-card blue"><div class="num">' + grandTotal + '</div><div class="lbl">Total</div></div>' +
+          '<div class="stat-card green"><div class="num">' + grandCompleted + '</div><div class="lbl">Completed</div></div>' +
+          '<div class="stat-card red"><div class="num">' + grandOverdue + '</div><div class="lbl">Overdue</div></div>' +
+          '<div class="stat-card orange"><div class="num">' + (grandTotal > 0 ? Math.round(grandCompleted/grandTotal*100) : 0) + '%</div><div class="lbl">Completion</div></div>' +
+        '</div>';
+
+        deptNames.forEach(function(n) {
+          var ds = state.reports[n];
+          if (ds.total === 0) return;
+          var compPct = Math.round(ds.completed / ds.total * 100);
+          html += '<div class="card report-card">' +
+            '<div class="flex-between"><h4>' + esc(n) + '</h4><span class="text-muted">' + ds.total + ' tasks</span></div>' +
+            '<div class="report-stat"><span class="rs-label">Completed</span><span class="rs-value green">' + ds.completed + ' (' + compPct + '%)</span></div>' +
+            '<div class="report-stat"><span class="rs-label">Overdue</span><span class="rs-value red">' + ds.overdue + '</span></div>' +
+            '<div class="report-stat"><span class="rs-label">In Progress</span><span class="rs-value">' + (ds.inProgress || 0) + '</span></div>' +
+            '<div class="dept-bar mt-8"><span class="name" style="width:auto;text-align:left;">Progress</span><div class="bar-wrap"><div class="bar-fill green" style="width:' + compPct + '%"></div></div><span class="pct">' + compPct + '%</span></div>' +
+          '</div>';
+        });
+      }
     } else {
-      html += '<div class="empty-state"><p>No report data</p></div>';
+      html += '<div class="text-center text-muted" style="padding:20px;">Loading yearly report...</div></div>';
     }
 
     app.appendChild(renderMain(html));
     app.appendChild(renderTabs('reports'));
+
+    var yrBtn = document.getElementById('yr-load');
+    if (yrBtn) yrBtn.addEventListener('click', function() {
+      var y = parseInt(document.getElementById('yr-year').value, 10);
+      loadYearlyReport(y);
+    });
   }
 
   // ===== INIT =====
   function init() {
     loadConfig();
     if (isLoggedIn()) {
-      // Verify session is still valid
       apiGet({ action: 'ping' }).then(function(r) {
-        if (r && r.success) {
-          return apiGet({ action: 'me' });
-        }
+        if (r && r.success) return apiGet({ action: 'me' });
         clearConfig(); render(); return null;
       }).then(function(me) {
-        if (me && me.success) { state.user = me.data; loadInitialData(); }
+        if (me && me.success) { state.user = me.data; loadInitialData(); startNotifPoll(); }
         else { clearConfig(); render(); }
       }).catch(function() { clearConfig(); render(); });
     } else {
@@ -638,6 +908,35 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(function() {});
     }
+
+    // Global event delegation for header buttons
+    document.addEventListener('click', function(e) {
+      var notifBell = e.target.closest('#notif-bell');
+      if (notifBell) { e.preventDefault(); renderNotifPanel(); return; }
+
+      var searchBtn = e.target.closest('#search-btn');
+      if (searchBtn && state.isFullAccess) {
+        e.preventDefault();
+        var q = prompt('Search all departments:', '');
+        if (q && q.trim()) {
+          showLoading(true);
+          apiGet({ action: 'searchAll', q: q.trim() }).then(function(r) {
+            showLoading(false);
+            if (r && r.success && r.data.length > 0) {
+              var tasks = r.data;
+              state.tasks = tasks.map(function(t) { return { row: t.row, dept: t.dept, taskId: t.taskId, taskName: t.taskName, status: t.status, assignee: t.assignee, assignor: t.assignor, dueLapse: '', priority: '' }; });
+              state.taskTotal = tasks.length;
+              state.view = 'tasks';
+              render();
+              toast('Found ' + tasks.length + ' result' + (tasks.length > 1 ? 's' : ''), 'success');
+            } else {
+              toast('No results found', '');
+            }
+          }).catch(function() { showLoading(false); toast('Search error', 'error'); });
+        }
+        return;
+      }
+    });
   }
 
   init();
