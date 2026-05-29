@@ -34,14 +34,15 @@ function callApi(params, callback) {
   xhr.onreadystatechange = function() {
     if (xhr.readyState === 4) {
       if (xhr.status >= 200 && xhr.status < 300) {
-        try { callback(null, JSON.parse(xhr.responseText)); }
-        catch(e) { callback(null, xhr.responseText); }
+        var text = xhr.responseText || '';
+        try { callback(null, JSON.parse(text)); }
+        catch(e) { callback('Invalid response (not JSON): ' + text.substring(0, 200), null); }
       } else {
         callback('Error ' + xhr.status + ': ' + xhr.statusText, null);
       }
     }
   };
-  xhr.onerror = function() { callback('Network error', null); };
+  xhr.onerror = function() { callback('Network error — check URL and token', null); };
   xhr.timeout = 30000;
   xhr.ontimeout = function() { callback('Request timed out', null); };
   xhr.send(body);
@@ -87,6 +88,10 @@ function login() {
       showError('Connection failed: ' + (err || 'No response'));
       return;
     }
+    if (data.error) {
+      showError('Server: ' + data.error);
+      return;
+    }
 
     localStorage.setItem('tm_url', STATE.url);
     localStorage.setItem('tm_email', STATE.email);
@@ -130,7 +135,7 @@ function autoLogin() {
     document.getElementById('login-email').value = email;
     document.getElementById('login-token').value = token;
     callApi({ action: 'getDashboard' }, function(err, data) {
-      if (err || !data) {
+      if (err || !data || data.error) {
         logout();
         return;
       }
