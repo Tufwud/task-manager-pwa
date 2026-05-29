@@ -141,8 +141,12 @@
           <button style="padding:6px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);font-size:12px;cursor:pointer;" onclick="clearCache()">Clear Cache</button>
         </div>
         <div class="settings-item">
-          <div><div class="settings-label">App Version</div><div class="settings-desc">PWA build</div></div>
-          <div class="settings-value">2.0</div>
+          <div><div class="settings-label">App Version</div><div class="settings-desc">Commit <span id="settings-commit">e41ce20</span> • <span id="settings-date">30 May 2026</span></div></div>
+          <div class="settings-value" id="settings-version">2.0</div>
+        </div>
+        <div class="settings-item">
+          <div><div class="settings-label">Last Refreshed</div><div class="settings-desc">Tap to update now</div></div>
+          <div class="settings-value" id="settings-refreshed" onclick="refreshVersion()" style="cursor:pointer;">just now</div>
         </div>
       </div>
     </section>

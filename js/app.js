@@ -157,6 +157,16 @@ function copyToken() {
   }
 }
 
+function refreshVersion() {
+  document.getElementById('settings-refreshed').textContent = new Date().toLocaleTimeString();
+  showPopup('info', 'Refreshed', 'Checking for update...');
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration('/task-manager-pwa/').then(function(reg) {
+      if (reg) { reg.update(); setTimeout(function() { location.reload(); }, 1000); }
+    });
+  }
+}
+
 function clearCache() {
   STATE.cached = {};
   localStorage.removeItem('tm_cache');
