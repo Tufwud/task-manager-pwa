@@ -18,46 +18,32 @@ var STATE = {
   activeReport: 'workload'
 };
 
-// ── API Call ──
+// ── API Call (GET + JSONP — avoids all CORS issues) ──
 function callApi(params, callback) {
-  var url = STATE.url;
   params.token = STATE.token;
   params.email = STATE.email;
 
-  var body = Object.keys(params).map(function(k) {
+  var qs = Object.keys(params).map(function(k) {
     return encodeURIComponent(k) + '=' + encodeURIComponent(String(params[k]));
   }).join('&');
 
-  var xhr = new XMLHttpRequest();
-  xhr.open('POST', url, true);
-  xhr.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8');
-  xhr.onreadystatechange = function() {
-    if (xhr.readyState === 4) {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        var text = xhr.responseText || '';
-        try { callback(null, JSON.parse(text)); }
-        catch(e) { callback('Invalid response (not JSON): ' + text.substring(0, 200), null); }
-      } else {
-        callback('Error ' + xhr.status + ': ' + xhr.statusText, null);
-      }
-    }
-  };
-  xhr.onerror = function() { callback('Network error — check URL and token', null); };
-  xhr.timeout = 30000;
-  xhr.ontimeout = function() { callback('Request timed out', null); };
-  xhr.send(body);
-}
-
-function callApiGet(params, callback) {
-  var url = STATE.url + '?' + Object.keys(params).map(function(k) {
-    return encodeURIComponent(k) + '=' + encodeURIComponent(String(params[k]));
-  }).join('&') + '&callback=jsonpCallback';
-
+  var url = STATE.url + '?' + qs + '&callback=cb_' + Date.now();
   var script = document.createElement('script');
+  var cbName = 'jsonp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  url = url.replace(/cb_(\d+)/, cbName);
+
+  window[cbName] = function(data) {
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+    callback(null, data);
+  };
+
   script.src = url;
-  window.jsonpCallback = function(data) { callback(null, data); delete window.jsonpCallback; document.head.removeChild(script); };
-  window.jsonpError = function() { callback('JSONP error', null); delete window.jsonpError; document.head.removeChild(script); };
-  script.onerror = window.jsonpError;
+  script.onerror = function() {
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+    callback('Network error — check URL and token', null);
+  };
   document.head.appendChild(script);
 }
 
