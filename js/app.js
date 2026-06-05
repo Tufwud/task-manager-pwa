@@ -1,50 +1,30 @@
 /* ═══════════════════════════════════════════
-   Task Manager PWA — App
+   TaskFlow PWA v3.0
    ═══════════════════════════════════════════ */
 
-// ── State ──
 var STATE = {
-  url: '',
-  email: '',
-  token: '',
-  user: null,
-  dept: '',
-  depts: [],
-  tasks: [],
-  cached: {},
-  calMonth: null,
-  calYear: null,
-  selectedTask: null,
-  activeReport: 'workload'
+  url: '', email: '', token: '', dept: '', depts: [],
+  tasks: [], cached: {}, calMonth: null, calYear: null,
+  selectedTask: null, activeReport: 'mgmt'
 };
 
-// ── API Call (GET + JSONP — avoids all CORS issues) ──
-function callApi(params, callback) {
-  params.token = STATE.token;
-  params.email = STATE.email;
-
+// ── API (GET + JSONP — zero CORS issues) ──
+function callApi(params, cb) {
+  params.token = STATE.token; params.email = STATE.email;
   var qs = Object.keys(params).map(function(k) {
     return encodeURIComponent(k) + '=' + encodeURIComponent(String(params[k]));
   }).join('&');
+  var cbName = 'jp' + Date.now() + Math.random().toString(36).slice(2,5);
+  var url = STATE.url + '?' + qs + '&callback=' + cbName;
 
-  var url = STATE.url + '?' + qs + '&callback=cb_' + Date.now();
-  var script = document.createElement('script');
-  var cbName = 'jsonp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-  url = url.replace(/cb_(\d+)/, cbName);
-
-  window[cbName] = function(data) {
-    delete window[cbName];
-    if (script.parentNode) script.parentNode.removeChild(script);
-    callback(null, data);
+  window[cbName] = function(d) {
+    delete window[cbName]; var s = document.getElementById(cbName);
+    if (s) s.remove(); cb(null, d);
   };
-
-  script.src = url;
-  script.onerror = function() {
-    delete window[cbName];
-    if (script.parentNode) script.parentNode.removeChild(script);
-    callback('Network error — check URL and token', null);
-  };
-  document.head.appendChild(script);
+  var s = document.createElement('script'); s.id = cbName;
+  s.src = url;
+  s.onerror = function() { delete window[cbName]; s.remove(); cb('Network error', null); };
+  document.head.appendChild(s);
 }
 
 // ── Auth ──
@@ -52,205 +32,119 @@ function login() {
   var url = document.getElementById('login-url').value.trim();
   var email = document.getElementById('login-email').value.trim();
   var token = document.getElementById('login-token').value.trim();
-
-  if (!url || !email || !token) {
-    showError('All fields are required');
-    return;
-  }
-
-  STATE.url = url.replace(/\/+$/, '');
-  STATE.email = email;
-  STATE.token = token;
-
-  document.getElementById('login-btn').disabled = true;
-  document.getElementById('login-btn').textContent = 'Signing in...';
+  if (!url || !email || !token) return showError('All fields required');
+  STATE.url = url.replace(/\/+$/, ''); STATE.email = email; STATE.token = token;
+  var btn = document.getElementById('login-btn'); btn.disabled = true; btn.textContent = 'Connecting...';
   document.getElementById('login-error').style.display = 'none';
 
   callApi({ action: 'getDashboard' }, function(err, data) {
-    document.getElementById('login-btn').disabled = false;
-    document.getElementById('login-btn').textContent = 'Sign In';
+    btn.disabled = false; btn.textContent = 'Sign In';
+    if (err || !data) return showError('Connection failed: ' + (err || 'No response'));
+    if (data.error) return showError('Server: ' + data.error);
 
-    if (err || !data) {
-      showError('Connection failed: ' + (err || 'No response'));
-      return;
-    }
-    if (data.error) {
-      showError('Server: ' + data.error);
-      return;
-    }
-
-    localStorage.setItem('tm_url', STATE.url);
-    localStorage.setItem('tm_email', STATE.email);
-    localStorage.setItem('tm_token', STATE.token);
-
-    STATE.user = data.user || email;
+    localStorage.setItem('tf_url', STATE.url);
+    localStorage.setItem('tf_email', STATE.email);
+    localStorage.setItem('tf_token', STATE.token);
     STATE.dept = data.dept || '';
-
     document.getElementById('login-page').classList.add('hidden');
     document.getElementById('app').classList.add('active');
-
     document.getElementById('user-email').textContent = email.split('@')[0];
     document.getElementById('user-avatar').textContent = email.charAt(0).toUpperCase();
-
     init();
   });
 }
 
 function logout() {
-  localStorage.removeItem('tm_url');
-  localStorage.removeItem('tm_email');
-  localStorage.removeItem('tm_token');
-  STATE.url = ''; STATE.email = ''; STATE.token = '';
-  STATE.cached = {};
-  STATE.tasks = [];
-
+  ['tf_url','tf_email','tf_token'].forEach(function(k) { localStorage.removeItem(k); });
+  STATE.url = ''; STATE.email = ''; STATE.token = ''; STATE.tasks = []; STATE.cached = {};
   document.getElementById('app').classList.remove('active');
   document.getElementById('login-page').classList.remove('hidden');
   document.getElementById('login-token').value = '';
 }
 
 function autoLogin() {
-  var url = localStorage.getItem('tm_url');
-  var email = localStorage.getItem('tm_email');
-  var token = localStorage.getItem('tm_token');
-  if (url && email && token) {
-    STATE.url = url;
-    STATE.email = email;
-    STATE.token = token;
-    document.getElementById('login-url').value = url;
-    document.getElementById('login-email').value = email;
-    document.getElementById('login-token').value = token;
-    callApi({ action: 'getDashboard' }, function(err, data) {
-      if (err || !data || data.error) {
-        logout();
-        return;
-      }
-      STATE.user = data.user || email;
-      STATE.dept = data.dept || '';
-      document.getElementById('login-page').classList.add('hidden');
-      document.getElementById('app').classList.add('active');
-      document.getElementById('user-email').textContent = email.split('@')[0];
-      document.getElementById('user-avatar').textContent = email.charAt(0).toUpperCase();
-      document.getElementById('settings-email').textContent = email;
-      document.getElementById('settings-token').textContent = token;
-      document.getElementById('settings-url').textContent = url;
-      init();
-    });
-  }
-}
+  var url = localStorage.getItem('tf_url');
+  var email = localStorage.getItem('tf_email');
+  var token = localStorage.getItem('tf_token');
+  if (!url || !email || !token) return;
+  STATE.url = url; STATE.email = email; STATE.token = token;
+  document.getElementById('login-url').value = url;
+  document.getElementById('login-email').value = email;
+  document.getElementById('login-token').value = token;
 
-function copyToken() {
-  var t = document.getElementById('settings-token').textContent;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(t).then(function() {
-      showPopup('info', 'Copied', 'Token copied to clipboard');
-    });
-  }
-}
-
-function refreshVersion() {
-  document.getElementById('settings-refreshed').textContent = new Date().toLocaleTimeString();
-  showPopup('info', 'Refreshed', 'Checking for update...');
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistration('/task-manager-pwa/').then(function(reg) {
-      if (reg) { reg.update(); setTimeout(function() { location.reload(); }, 1000); }
-    });
-  }
-}
-
-function clearCache() {
-  STATE.cached = {};
-  localStorage.removeItem('tm_cache');
-  showPopup('info', 'Cache Cleared', 'Local cache cleared. Reloading...');
-  setTimeout(function() { location.reload(); }, 800);
+  callApi({ action: 'getDashboard' }, function(err, data) {
+    if (err || !data || data.error) { logout(); return; }
+    STATE.dept = data.dept || '';
+    document.getElementById('login-page').classList.add('hidden');
+    document.getElementById('app').classList.add('active');
+    document.getElementById('user-email').textContent = email.split('@')[0];
+    document.getElementById('user-avatar').textContent = email.charAt(0).toUpperCase();
+    document.getElementById('settings-email').textContent = email;
+    init();
+  });
 }
 
 // ── Init ──
 function init() {
   document.getElementById('settings-email').textContent = STATE.email;
-  document.getElementById('settings-token').textContent = STATE.token;
-  document.getElementById('settings-url').textContent = STATE.url;
-  if (STATE.dept) {
-    document.getElementById('settings-dept').textContent = STATE.dept;
-  }
-
-  var deptLabel = STATE.dept ? ' — ' + STATE.dept : '';
-  document.getElementById('dash-dept').textContent = deptLabel;
-  document.getElementById('tasks-dept').textContent = deptLabel;
-  document.getElementById('cal-dept').textContent = deptLabel;
-  document.getElementById('reports-dept').textContent = deptLabel;
-  document.getElementById('notif-dept').textContent = deptLabel;
-
-  var now = new Date();
-  STATE.calMonth = now.getMonth();
-  STATE.calYear = now.getFullYear();
-
-  loadDashboard();
-  loadTasks();
-  loadStaffList();
+  document.getElementById('settings-dept').textContent = STATE.dept || 'All';
+  var d = new Date();
+  STATE.calMonth = d.getMonth(); STATE.calYear = d.getFullYear();
+  loadDashboard(); loadTasks();
 }
 
 // ── Tab Switching ──
 function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
   document.querySelectorAll('.tab-btn').forEach(function(el) { el.classList.remove('active'); });
-
   document.getElementById('tab-' + name).classList.add('active');
   document.querySelector('.tab-btn[data-tab="' + name + '"]').classList.add('active');
-
   if (name === 'dashboard') loadDashboard();
   else if (name === 'tasks') renderTasks();
+  else if (name === 'depts') loadDepts();
   else if (name === 'calendar') renderCalendar();
   else if (name === 'reports') renderReport(STATE.activeReport);
-  else if (name === 'notifications') loadNotifications();
 }
 
 // ── Dashboard ──
 function loadDashboard() {
-  var statsEl = document.getElementById('dash-stats');
+  var el = document.getElementById('dash-stats');
+  el.innerHTML = '<div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div>';
+  var cached = getCache('dash');
   var dueEl = document.getElementById('dash-due-today');
-  var overdueEl = document.getElementById('dash-overdue');
+  var overEl = document.getElementById('dash-overdue');
   var compEl = document.getElementById('dash-completed');
-
-  statsEl.innerHTML = '<div class="loading-center"><span class="spinner"></span> Loading...</div>';
-  dueEl.innerHTML = '';
-  overdueEl.innerHTML = '';
-  compEl.innerHTML = '';
-
-  var cached = getCache('dashboard');
-  if (cached) { renderDashboard(cached, statsEl, dueEl, overdueEl, compEl); }
+  if (cached) { renderDash(cached, el, dueEl, overEl, compEl); }
 
   callApi({ action: 'getDashboard' }, function(err, data) {
-    if (err || !data) {
-      if (!cached) statsEl.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><h3>Could not load</h3><p>' + (err || 'No data') + '</p></div>';
+    if (err || !data || data.error) {
+      if (!cached) el.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><h3>Could not load</h3></div>';
       return;
     }
-    setCache('dashboard', data);
-    renderDashboard(data, statsEl, dueEl, overdueEl, compEl);
+    setCache('dash', data);
+    renderDash(data, el, dueEl, overEl, compEl);
   });
 }
 
-function renderDashboard(data, statsEl, dueEl, overdueEl, compEl) {
-  var stats = data.stats || {};
-  statsEl.innerHTML =
-    '<div class="stat-card blue"><div class="stat-value">' + (stats.total || 0) + '</div><div class="stat-label">Total Tasks</div></div>' +
-    '<div class="stat-card orange"><div class="stat-value">' + (stats.inProgress || 0) + '</div><div class="stat-label">In Progress</div></div>' +
-    '<div class="stat-card red"><div class="stat-value">' + (stats.overdue || 0) + '</div><div class="stat-label">Overdue</div></div>' +
-    '<div class="stat-card green"><div class="stat-value">' + (stats.completed || 0) + '</div><div class="stat-label">Completed</div></div>';
-
-  dueEl.innerHTML = renderTaskList(data.dueToday || []);
-  overdueEl.innerHTML = renderTaskList(data.overdue || []);
-  compEl.innerHTML = renderTaskList(data.completedYest || []);
+function renderDash(data, el, dueEl, overEl, compEl) {
+  var s = data.stats || {};
+  el.innerHTML =
+    '<div class="stat-card primary"><div class="stat-value">' + (s.total||0) + '</div><div class="stat-label">Total</div></div>' +
+    '<div class="stat-card orange"><div class="stat-value">' + (s.inProgress||0) + '</div><div class="stat-label">In Progress</div></div>' +
+    '<div class="stat-card accent"><div class="stat-value">' + (s.overdue||0) + '</div><div class="stat-label">Overdue</div></div>' +
+    '<div class="stat-card green"><div class="stat-value">' + (s.completed||0) + '</div><div class="stat-label">Completed</div></div>';
+  dueEl.innerHTML = taskListItems(data.dueToday||[]);
+  overEl.innerHTML = taskListItems(data.overdue||[]);
+  compEl.innerHTML = taskListItems(data.completedYest||[]);
 }
 
-function renderTaskList(tasks) {
-  if (!tasks || tasks.length === 0) return '<div class="empty-state" style="padding:16px 0"><p>None</p></div>';
-  return tasks.map(function(t) {
-    return '<div class="list-item" onclick="openTask(\'' + t.id + '\')">' +
-      '<span class="item-id">' + escapeHtml(t.id || '') + '</span>' +
-      '<span class="item-name">' + escapeHtml(t.task || '') + '</span>' +
-      '<span class="item-status status-' + (t.status || '').replace(/ /g,'.') + '">' + escapeHtml(t.status || '') + '</span>' +
-    '</div>';
+function taskListItems(arr) {
+  if (!arr || !arr.length) return '<div class="empty-state" style="padding:12px 0"><p style="font-size:13px">None</p></div>';
+  return arr.map(function(t) {
+    return '<div class="list-item" onclick="openTask(\'' + esc(t.id) + '\')">' +
+      '<span class="item-id">' + esc(t.id) + '</span>' +
+      '<span class="item-name">' + esc(t.task) + '</span>' +
+      '<span class="item-status status-' + (t.status||'').replace(/ /g,'.') + '">' + esc(t.status) + '</span></div>';
   }).join('');
 }
 
@@ -258,104 +152,139 @@ function renderTaskList(tasks) {
 function loadTasks() {
   var cached = getCache('tasks');
   if (cached) { STATE.tasks = cached; renderTasks(); }
-
   callApi({ action: 'getTasks' }, function(err, data) {
-    if (err || !data) {
-      if (!cached) document.getElementById('task-list').innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><h3>Could not load tasks</h3></div>';
+    if (err || !data || data.error) {
+      if (!cached) document.getElementById('task-list').innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><h3>Could not load</h3></div>';
       return;
     }
-    var tasks = data.tasks || data || [];
-    STATE.tasks = tasks;
-    setCache('tasks', tasks);
-    renderTasks();
-
-    if (STATE.dept && data.depts) STATE.depts = data.depts;
-    loadStaffList();
+    var t = data.tasks || data || [];
+    STATE.tasks = t;
+    if (data.depts) STATE.depts = data.depts;
+    setCache('tasks', t);
+    renderTasks(); populateFilterStaff();
   });
 }
 
 function renderTasks() {
-  var listEl = document.getElementById('task-list');
-  var status = document.getElementById('filter-status').value;
-  var priority = document.getElementById('filter-priority').value;
-  var assignee = document.getElementById('filter-assignee').value;
-  var dateFrom = document.getElementById('filter-date-from').value;
-  var dateTo = document.getElementById('filter-date-to').value;
-  var search = document.getElementById('filter-search').value.trim().toLowerCase();
-
-  var filtered = STATE.tasks.filter(function(t) {
-    if (status && t.status !== status) return false;
-    if (priority && t.priority !== priority) return false;
-    if (assignee && t.assignee !== assignee) return false;
-    if (dateFrom) { var d = new Date(t.dueDate); if (d < new Date(dateFrom)) return false; }
-    if (dateTo) { var d2 = new Date(t.dueDate); if (d2 > new Date(dateTo + 'T23:59:59')) return false; }
-    if (search && (t.task || '').toLowerCase().indexOf(search) === -1 && (t.id || '').toLowerCase().indexOf(search) === -1) return false;
+  var el = document.getElementById('task-list');
+  var st = document.getElementById('filter-status').value;
+  var pr = document.getElementById('filter-priority').value;
+  var as = document.getElementById('filter-assignee').value;
+  var df = document.getElementById('filter-date-from').value;
+  var dt = document.getElementById('filter-date-to').value;
+  var sq = document.getElementById('filter-search').value.trim().toLowerCase();
+  var fl = STATE.tasks.filter(function(t) {
+    if (st && t.status !== st) return false;
+    if (pr && t.priority !== pr) return false;
+    if (as && t.assignee !== as) return false;
+    if (df) { var d1 = new Date(t.dueDate); if (d1 < new Date(df)) return false; }
+    if (dt) { var d2 = new Date(t.dueDate); if (d2 > new Date(dt + 'T23:59:59')) return false; }
+    if (sq && (t.task||'').toLowerCase().indexOf(sq) === -1 && (t.id||'').toLowerCase().indexOf(sq) === -1) return false;
     return true;
   });
-
-  document.getElementById('filter-count').textContent = filtered.length + ' of ' + STATE.tasks.length + ' tasks';
-
-  if (filtered.length === 0) {
-    listEl.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><h3>No tasks match</h3><p>Try changing your filters</p></div>';
+  document.getElementById('filter-count').textContent = fl.length + ' of ' + STATE.tasks.length;
+  if (!fl.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><h3>No tasks match</h3><p>Try different filters</p></div>';
     return;
   }
-
-  listEl.innerHTML = filtered.map(function(t) {
-    return '<div class="task-item priority-' + (t.priority || 'Medium') + '" onclick="openTask(\'' + escapeHtml(t.id) + '\')">' +
-      '<div class="task-top">' +
-        '<span class="task-id">' + escapeHtml(t.id || '') + '</span>' +
-        '<span class="task-name">' + escapeHtml(t.task || '') + '</span>' +
-      '</div>' +
+  el.innerHTML = fl.map(function(t) {
+    return '<div class="task-item priority-' + (t.priority||'Medium') + '" onclick="openTask(\'' + esc(t.id) + '\')">' +
+      '<div class="task-top"><span class="task-id">' + esc(t.id) + '</span><span class="task-name">' + esc(t.task) + '</span></div>' +
       '<div class="task-bottom">' +
-        '<span class="label status-' + (t.status || '').replace(/ /g,'.') + '">' + escapeHtml(t.status || 'To Do') + '</span>' +
-        (t.overdue ? '<span class="overdue">⚠️ OVERDUE</span>' : '') +
-        '<span class="assignee">' + escapeHtml(t.assignee || '') + '</span>' +
-        '<span>' + escapeHtml(t.priority || '') + '</span>' +
-        (t.dueDate ? '<span>Due: ' + formatDate(t.dueDate) + '</span>' : '') +
-      '</div>' +
-    '</div>';
+        '<span class="label status-' + (t.status||'To.Do').replace(/ /g,'.') + '">' + esc(t.status||'To Do') + '</span>' +
+        (t.overdue ? ' <span class="overdue">⚠️ OVERDUE</span>' : '') +
+        ' <span class="assignee">' + esc(t.assignee||'') + '</span>' +
+        (t.dept ? ' <span>📁 ' + esc(t.dept) + '</span>' : '') +
+        (t.dueDate ? ' <span>📅 ' + fmtDate(t.dueDate) + '</span>' : '') +
+      '</div></div>';
   }).join('');
 }
 
 function clearFilters() {
-  document.getElementById('filter-status').value = '';
-  document.getElementById('filter-priority').value = '';
-  document.getElementById('filter-assignee').value = '';
-  document.getElementById('filter-date-from').value = '';
-  document.getElementById('filter-date-to').value = '';
-  document.getElementById('filter-search').value = '';
+  ['filter-status','filter-priority','filter-assignee','filter-date-from','filter-date-to','filter-search'].forEach(function(id) {
+    document.getElementById(id).value = '';
+  });
   renderTasks();
 }
 
-// ── Task Detail Sheet ──
-function openTask(taskId) {
-  var task = STATE.tasks.find(function(t) { return t.id === taskId; });
-  if (!task) return;
-  STATE.selectedTask = task;
-
-  document.getElementById('sheet-title').textContent = task.task || 'Task';
-  document.getElementById('sheet-meta').textContent = 'ID: ' + task.id + ' • ' + (task.dept || '');
-  document.getElementById('sheet-status').value = task.status || 'To Do';
-
-  var details = [
-    { label: 'Task ID', value: task.id },
-    { label: 'Priority', value: task.priority },
-    { label: 'Status', value: task.status },
-    { label: 'Assignee', value: task.assignee },
-    { label: 'Department', value: task.dept },
-    { label: 'Assignor', value: task.assignor },
-    { label: 'Created', value: formatDate(task.createdDate) },
-    { label: 'Due', value: formatDate(task.dueDate) },
-    { label: 'Completed', value: formatDate(task.completedDate) },
-    { label: 'Recurring', value: task.recurring || 'No' },
-    { label: 'Overdue', value: task.overdue ? '⚠️ Yes' : 'No' }
-  ];
-
-  document.getElementById('sheet-details').innerHTML = details.map(function(d) {
-    if (!d.value) return '';
-    return '<div class="detail-row"><span class="detail-label">' + d.label + '</span><span class="detail-value">' + escapeHtml(String(d.value)) + '</span></div>';
+function populateFilterStaff() {
+  var sel = document.getElementById('filter-assignee');
+  var cur = sel.value;
+  var s = new Set();
+  STATE.tasks.forEach(function(t) { if (t.assignee) s.add(t.assignee); });
+  sel.innerHTML = '<option value="">Assignee</option>' + Array.from(s).sort().map(function(n) {
+    return '<option value="' + esc(n) + '"' + (n === cur ? ' selected' : '') + '>' + esc(n) + '</option>';
   }).join('');
+}
 
+// ── Departments ──
+function loadDepts() {
+  var el = document.getElementById('dept-list');
+  var showDept = STATE.dept || null;
+  el.innerHTML = '<div class="loading-center"><span class="spinner"></span></div>';
+
+  var cached = getCache('depts');
+  if (cached) { renderDepts(cached, el, showDept); }
+
+  callApi({ action: 'getDeptTasks' }, function(err, data) {
+    if (err || !data || data.error) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><h3>Could not load</h3></div>';
+      return;
+    }
+    var depts = data.departments || [];
+    setCache('depts', depts);
+    renderDepts(depts, el, showDept);
+  });
+}
+
+function renderDepts(depts, el, showDept) {
+  if (!depts || !depts.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><h3>No departments</h3></div>';
+    return;
+  }
+  var filtered = depts;
+  if (showDept) filtered = depts.filter(function(d) { return d.dept === showDept; });
+  el.innerHTML = filtered.map(function(d) {
+    if (!d.tasks || !d.tasks.length) return '';
+    return '<div class="dept-group">' +
+      '<div class="dept-header" onclick="this.nextElementSibling.classList.toggle(\'hidden\')">' +
+        esc(d.dept) + ' <span class="dept-count">' + d.count + ' tasks</span>' +
+      '</div>' +
+      '<div class="dept-tasks">' +
+        d.tasks.map(function(t) {
+          return '<div class="task-item priority-' + (t.priority||'Medium') + '" onclick="openTask(\'' + esc(t.id) + '\')">' +
+            '<div class="task-top"><span class="task-id">' + esc(t.id) + '</span><span class="task-name">' + esc(t.task) + '</span></div>' +
+            '<div class="task-bottom">' +
+              '<span class="label status-' + (t.status||'To.Do').replace(/ /g,'.') + '">' + esc(t.status||'To Do') + '</span>' +
+              (t.overdue ? ' <span class="overdue">⚠️ OVERDUE</span>' : '') +
+              ' <span>' + esc(t.assignee||'') + '</span>' +
+              (t.dueDate ? ' <span>📅 ' + fmtDate(t.dueDate) + '</span>' : '') +
+            '</div></div>';
+        }).join('') +
+      '</div></div>';
+  }).join('');
+}
+
+// ── Task Sheet ──
+function openTask(id) {
+  var t = STATE.tasks.find(function(x) { return x.id === id; });
+  if (!t) return;
+  STATE.selectedTask = t;
+  document.getElementById('sheet-title').textContent = t.task || 'Task';
+  document.getElementById('sheet-meta').textContent = 'ID: ' + t.id + ' • ' + (t.dept||'');
+  document.getElementById('sheet-status').value = t.status || 'To Do';
+
+  var items = [
+    ['Task ID', t.id], ['Priority', t.priority], ['Status', t.status],
+    ['Assignee', t.assignee], ['Department', t.dept], ['Assignor', t.assignor],
+    ['Created', t.createdDate ? fmtDate(t.createdDate) : ''],
+    ['Due', t.dueDate ? fmtDate(t.dueDate) : ''], ['Completed', t.completedDate ? fmtDate(t.completedDate) : ''],
+    ['Recurring', t.recurring || 'No']
+  ];
+  document.getElementById('sheet-details').innerHTML = items.map(function(i) {
+    if (!i[1]) return '';
+    return '<div class="detail-item"><div class="dl">' + i[0] + '</div><div class="dv">' + esc(String(i[1])) + '</div></div>';
+  }).join('');
   document.getElementById('sheet-overlay').classList.add('open');
   document.getElementById('task-sheet').classList.add('open');
 }
@@ -366,17 +295,13 @@ function closeSheet() {
 }
 
 function updateTaskStatus() {
-  var task = STATE.selectedTask;
-  if (!task) return;
-  var newStatus = document.getElementById('sheet-status').value;
-
-  callApi({ action: 'updateTask', taskId: task.id, status: newStatus }, function(err, data) {
-    if (err) { showPopup('error', 'Update Failed', err); return; }
-    showPopup('success', 'Status Updated', task.id + ' → ' + newStatus);
-    closeSheet();
-    STATE.cached = {};
-    loadTasks();
-    loadDashboard();
+  var t = STATE.selectedTask;
+  if (!t) return;
+  var ns = document.getElementById('sheet-status').value;
+  callApi({ action: 'updateTask', taskId: t.id, status: ns }, function(err, data) {
+    if (err || (data && data.error)) return popup('error', 'Failed', err || data.error);
+    popup('success', 'Updated', t.id + ' → ' + ns);
+    closeSheet(); STATE.cached = {}; loadTasks(); loadDashboard();
   });
 }
 
@@ -388,20 +313,14 @@ function showCreateTask() {
   document.getElementById('create-due-date').value = '';
   document.getElementById('create-description').value = '';
 
-  var deptSel = document.getElementById('create-dept');
-  deptSel.innerHTML = '<option value="">Department (auto)</option>';
-  if (STATE.depts && STATE.depts.length > 0) {
-    STATE.depts.forEach(function(d) {
-      deptSel.innerHTML += '<option value="' + escapeHtml(d) + '">' + escapeHtml(d) + '</option>';
-    });
-  }
+  var ds = document.getElementById('create-dept');
+  ds.innerHTML = '<option value="">Department</option>';
+  (STATE.depts||[]).forEach(function(d) { ds.innerHTML += '<option value="' + esc(d) + '">' + esc(d) + '</option>'; });
 
-  var staffList = document.getElementById('staff-list');
-  var staffSet = new Set();
-  STATE.tasks.forEach(function(t) { if (t.assignee) staffSet.add(t.assignee); });
-  staffList.innerHTML = Array.from(staffSet).sort().map(function(s) {
-    return '<option value="' + escapeHtml(s) + '">';
-  }).join('');
+  var sl = document.getElementById('staff-list');
+  var ss = new Set();
+  STATE.tasks.forEach(function(t) { if (t.assignee) ss.add(t.assignee); });
+  sl.innerHTML = Array.from(ss).sort().map(function(n) { return '<option value="' + esc(n) + '">'; }).join('');
 
   document.getElementById('modal-overlay').classList.add('open');
   document.getElementById('create-modal').classList.add('open');
@@ -413,152 +332,72 @@ function closeModal() {
 }
 
 function submitTask() {
-  var taskName = document.getElementById('create-task-name').value.trim();
-  var assignee = document.getElementById('create-assignee').value.trim();
-  var priority = document.getElementById('create-priority').value;
-  var dueDate = document.getElementById('create-due-date').value;
-  var description = document.getElementById('create-description').value.trim();
-  var dept = document.getElementById('create-dept').value;
-
-  if (!taskName || !assignee) {
-    showPopup('error', 'Required Fields', 'Task Name and Assignee are required');
-    return;
-  }
-
-  document.getElementById('create-submit').disabled = true;
-  document.getElementById('create-submit').textContent = 'Creating...';
-
-  var params = {
-    action: 'createTask',
-    task: taskName,
-    assignee: assignee,
-    priority: priority,
-    description: description
-  };
-  if (dueDate) params.dueDate = dueDate;
-  if (dept) params.dept = dept;
-
-  callApi(params, function(err, data) {
-    document.getElementById('create-submit').disabled = false;
-    document.getElementById('create-submit').textContent = 'Create Task';
-
-    if (err) { showPopup('error', 'Failed', err); return; }
-
-    showPopup('success', 'Task Initiated', taskName + ' created');
-    closeModal();
-
-    STATE.cached = {};
-    loadTasks();
-    loadDashboard();
-    switchTab('tasks');
+  var tn = document.getElementById('create-task-name').value.trim();
+  var as = document.getElementById('create-assignee').value.trim();
+  var pr = document.getElementById('create-priority').value;
+  var dd = document.getElementById('create-due-date').value;
+  var ds = document.getElementById('create-description').value.trim();
+  var dp = document.getElementById('create-dept').value;
+  if (!tn || !as) return popup('error', 'Required', 'Task name and assignee required');
+  var btn = document.getElementById('create-submit'); btn.disabled = true; btn.textContent = 'Creating...';
+  var p = { action: 'createTask', task: tn, assignee: as, priority: pr, description: ds };
+  if (dd) p.dueDate = dd; if (dp) p.dept = dp;
+  callApi(p, function(err, data) {
+    btn.disabled = false; btn.textContent = 'Create Task';
+    if (err || (data && data.error)) return popup('error', 'Failed', err || data.error);
+    popup('success', 'Task Initiated', tn);
+    closeModal(); STATE.cached = {}; loadTasks(); loadDashboard();
   });
-}
-
-// ── Staff List for Filter ──
-function loadStaffList() {
-  var sel = document.getElementById('filter-assignee');
-  var currentVal = sel.value;
-
-  var staff = new Set();
-  STATE.tasks.forEach(function(t) { if (t.assignee) staff.add(t.assignee); });
-  var sorted = Array.from(staff).sort();
-
-  sel.innerHTML = '<option value="">Assignee</option>' + sorted.map(function(s) {
-    return '<option value="' + escapeHtml(s) + '"' + (s === currentVal ? ' selected' : '') + '>' + escapeHtml(s) + '</option>';
-  }).join('');
 }
 
 // ── Calendar ──
 function renderCalendar() {
-  var month = STATE.calMonth;
-  var year = STATE.calYear;
-
-  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  document.getElementById('cal-title').textContent = months[month] + ' ' + year;
-
-  var firstDay = new Date(year, month, 1).getDay();
-  var daysInMonth = new Date(year, month + 1, 0).getDate();
-  var daysInPrev = new Date(year, month, 0).getDate();
+  var m = STATE.calMonth, y = STATE.calYear;
+  var ms = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('cal-title').textContent = ms[m] + ' ' + y;
+  var fd = new Date(y,m,1).getDay(), dim = new Date(y,m+1,0).getDate();
+  var dip = new Date(y,m,0).getDate();
   var today = new Date();
-  var todayStr = today.getFullYear() + '-' + today.getMonth() + '-' + today.getDate();
-
   var grid = document.getElementById('cal-grid');
-  var html = '<div class="cal-day-header">Sun</div><div class="cal-day-header">Mon</div><div class="cal-day-header">Tue</div><div class="cal-day-header">Wed</div><div class="cal-day-header">Thu</div><div class="cal-day-header">Fri</div><div class="cal-day-header">Sat</div>';
-
-  var tasksByDate = getTasksByDate();
-
-  for (var p = firstDay - 1; p >= 0; p--) {
-    html += '<div class="cal-day other-month"><span class="day-num">' + (daysInPrev - p) + '</span></div>';
+  var html = 'Sun|Mon|Tue|Wed|Thu|Fri|Sat'.split('|').map(function(d){return'<div class="cal-day-header">'+d+'</div>'}).join('');
+  for (var p = fd - 1; p >= 0; p--) html += '<div class="cal-day other-month"><span class="day-num">' + (dip-p) + '</span></div>';
+  for (var d = 1; d <= dim; d++) {
+    var dt = y + '-' + m + '-' + d;
+    var isT = today.getFullYear() === y && today.getMonth() === m && today.getDate() === d;
+    var dayT = getTasksForDate(dt);
+    var hasT = dayT.length > 0, hasO = dayT.some(function(t){return t.overdue});
+    html += '<div class="cal-day' + (isT?' today':'') + '" onclick="showCalDay('+d+')"><span class="day-num">' + d + '</span>' +
+      (hasT ? '<span class="dot' + (hasO?' overdue-dot':' has-tasks') + '"></span>' : '') + '</div>';
   }
-
-  for (var d = 1; d <= daysInMonth; d++) {
-    var dateKey = year + '-' + month + '-' + d;
-    var isToday = (today.getFullYear() === year && today.getMonth() === month && today.getDate() === d);
-    var dayTasks = tasksByDate[dateKey] || [];
-    var hasTasks = dayTasks.length > 0;
-    var hasOverdue = dayTasks.some(function(t) { return t.overdue; });
-    var dueToday = dayTasks.some(function(t) { return t.status !== 'Completed' && t.status !== 'Cancelled'; });
-
-    html += '<div class="cal-day' + (isToday ? ' today' : '') + '" onclick="showCalendarDay(' + d + ')">' +
-      '<span class="day-num">' + d + '</span>' +
-      (hasTasks ? '<span class="dot' + (dueToday ? ' due-today' : ' has-tasks') + '"></span>' : '') +
-    '</div>';
-  }
-
-  var remaining = 42 - (firstDay + daysInMonth);
-  for (var n = 1; n <= remaining; n++) {
-    html += '<div class="cal-day other-month"><span class="day-num">' + n + '</span></div>';
-  }
-
+  for (var n = 1; n <= 42 - (fd + dim); n++) html += '<div class="cal-day other-month"><span class="day-num">' + n + '</span></div>';
   grid.innerHTML = html;
   document.getElementById('cal-tasks').innerHTML = '';
 }
 
-function getTasksByDate() {
-  var map = {};
-  STATE.tasks.forEach(function(t) {
-    if (t.dueDate) {
-      var d = new Date(t.dueDate);
-      var key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
-      if (!map[key]) map[key] = [];
-      map[key].push(t);
-    }
+function getTasksForDate(dateKey) {
+  return STATE.tasks.filter(function(t) {
+    if (!t.dueDate) return false;
+    var d = new Date(t.dueDate);
+    return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() === dateKey;
   });
-  return map;
 }
 
-function showCalendarDay(day) {
-  var dateKey = STATE.calYear + '-' + STATE.calMonth + '-' + day;
-  var tasksByDate = getTasksByDate();
-  var tasks = tasksByDate[dateKey] || [];
-
+function showCalDay(day) {
+  var dk = STATE.calYear + '-' + STATE.calMonth + '-' + day;
+  var tasks = getTasksForDate(dk);
   var el = document.getElementById('cal-tasks');
-  if (tasks.length === 0) {
-    el.innerHTML = '<div class="empty-state"><p>No tasks due on this day</p></div>';
-    return;
-  }
-
-  el.innerHTML = '<h4 style="font-size:14px;font-weight:600;margin-bottom:8px;">' + day + ' ' + document.getElementById('cal-title').textContent + '</h4>' +
+  if (!tasks.length) { el.innerHTML = '<div class="empty-state"><p>No tasks due this day</p></div>'; return; }
+  el.innerHTML = '<h4 style="font-size:14px;font-weight:700;margin-bottom:8px;">' + day + ' ' + document.getElementById('cal-title').textContent + '</h4>' +
     tasks.map(function(t) {
-      return '<div class="cal-task-item" onclick="openTask(\'' + escapeHtml(t.id) + '\')">' +
-        '<span class="cal-task-id">' + escapeHtml(t.id) + '</span>' +
-        '<span class="cal-task-name">' + escapeHtml(t.task) + '</span>' +
-        '<span class="cal-task-status">' + escapeHtml(t.status) + (t.overdue ? ' ⚠️' : '') + '</span>' +
-      '</div>';
+      return '<div class="cal-task-item" onclick="openTask(\'' + esc(t.id) + '\')">' +
+        '<span class="cal-task-id">' + esc(t.id) + '</span>' +
+        '<span class="cal-task-name">' + esc(t.task) + '</span>' +
+        '<span class="cal-task-status">' + esc(t.status) + (t.overdue ? ' ⚠️' : '') + '</span></div>';
     }).join('');
 }
 
-function calPrev() {
-  STATE.calMonth--;
-  if (STATE.calMonth < 0) { STATE.calMonth = 11; STATE.calYear--; }
-  renderCalendar();
-}
-
-function calNext() {
-  STATE.calMonth++;
-  if (STATE.calMonth > 11) { STATE.calMonth = 0; STATE.calYear++; }
-  renderCalendar();
-}
+function calPrev() { STATE.calMonth--; if (STATE.calMonth<0){STATE.calMonth=11;STATE.calYear--} renderCalendar(); }
+function calNext() { STATE.calMonth++; if (STATE.calMonth>11){STATE.calMonth=0;STATE.calYear++} renderCalendar(); }
 
 // ── Reports ──
 function renderReport(type) {
@@ -566,341 +405,243 @@ function renderReport(type) {
   document.querySelectorAll('.report-btn').forEach(function(b) {
     b.classList.toggle('active', b.dataset.report === type);
   });
-
-  var container = document.getElementById('report-container');
-  container.innerHTML = '<div class="loading-center"><span class="spinner"></span> Loading report...</div>';
-
-  var cached = getCache('report_' + type);
-  if (cached) { renderReportData(type, cached, container); }
-
-  callApi({ action: 'getReports', reportType: type }, function(err, data) {
-    if (err || !data) {
-      container.innerHTML = '<div class="empty-state"><div class="empty-icon">📈</div><h3>Could not load report</h3><p>' + (err || 'No data') + '</p></div>';
-      return;
-    }
-    setCache('report_' + type, data);
-    renderReportData(type, data, container);
-  });
-}
-
-function renderReportData(type, data, container) {
-  if (type === 'workload') renderWorkloadReport(data, container);
-  else if (type === 'dept') renderDeptReport(data, container);
-  else if (type === 'trend') renderTrendReport(data, container);
-  else if (type === 'priority') renderPriorityReport(data, container);
-  else if (type === 'aging') renderAgingReport(data, container);
-}
-
-function renderWorkloadReport(data, container) {
-  var items = data.workload || data.users || data;
-  if (!items || (Array.isArray(items) && items.length === 0)) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><h3>No data</h3></div>';
-    return;
-  }
-  var maxVal = 0;
-  if (Array.isArray(items)) items.forEach(function(u) { if (u.count > maxVal) maxVal = u.count; });
-  else { items = Object.keys(items).map(function(k) { return { name: k, count: items[k] }; }); maxVal = Math.max.apply(null, items.map(function(u) { return u.count; })); }
-  maxVal = maxVal || 1;
-
-  var html = '<div class="chart-container"><h4>Tasks per User</h4><div class="bar-chart">';
-  items.forEach(function(u) {
-    var pct = (u.count / maxVal) * 100;
-    var color = u.count > 10 ? '#ea4335' : u.count > 5 ? '#e65100' : '#1a73e8';
-    html += '<div class="bar" style="height:' + pct + '%;background:' + color + ';" title="' + escapeHtml(u.name) + ': ' + u.count + '"><span class="bar-value">' + u.count + '</span><span class="bar-label">' + escapeHtml(u.name || '').substring(0, 6) + '</span></div>';
-  });
-  html += '</div></div>';
-
-  html += '<div class="chart-container"><h4>Detail</h4><table class="report-table"><tr><th>User</th><th>Tasks</th><th>Completed</th><th>Overdue</th><th>Rate</th></tr>';
-  items.forEach(function(u) {
-    var rate = u.total > 0 ? Math.round((u.completed / u.total) * 100) + '%' : '-';
-    html += '<tr><td>' + escapeHtml(u.name) + '</td><td>' + (u.total || u.count || 0) + '</td><td>' + (u.completed || 0) + '</td><td>' + (u.overdue || 0) + '</td><td>' + rate + '</td></tr>';
-  });
-  html += '</table></div>';
-  html += '<button class="csv-export-btn" onclick="exportCSV(\'workload\')">⬇ Export CSV</button>';
-  container.innerHTML = html;
-}
-
-function renderDeptReport(data, container) {
-  var items = data.departments || data.depts || data;
-  if (!items || (Array.isArray(items) && items.length === 0)) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><h3>No data</h3></div>';
-    return;
-  }
-  if (!Array.isArray(items)) {
-    items = Object.keys(items).map(function(k) { return { name: k, total: items[k].total || items[k].count || items[k], completed: items[k].completed || 0, overdue: items[k].overdue || 0 }; });
-  }
-
-  var maxVal = Math.max.apply(null, items.map(function(d) { return d.total || 0; })) || 1;
-
-  var html = '<div class="chart-container"><h4>Department Performance</h4><div class="bar-chart">';
-  items.forEach(function(d) {
-    var pct = (d.total / maxVal) * 100;
-    var compPct = d.total > 0 ? (d.completed / d.total) * 100 : 0;
-    html += '<div class="bar" style="height:' + pct + '%;background:' + (compPct > 80 ? '#34a853' : compPct > 50 ? '#fbbc04' : '#ea4335') + ';" title="' + escapeHtml(d.name) + ': ' + d.total + '"><span class="bar-value">' + d.total + '</span><span class="bar-label">' + escapeHtml((d.name || '').substring(0, 8)) + '</span></div>';
-  });
-  html += '</div></div>';
-
-  html += '<div class="chart-container"><h4>Detail</h4><table class="report-table"><tr><th>Department</th><th>Total</th><th>Completed</th><th>Overdue</th><th>Completion Rate</th></tr>';
-  items.forEach(function(d) {
-    var rate = d.total > 0 ? Math.round((d.completed / d.total) * 100) + '%' : '-';
-    html += '<tr><td>' + escapeHtml(d.name) + '</td><td>' + (d.total || 0) + '</td><td>' + (d.completed || 0) + '</td><td>' + (d.overdue || 0) + '</td><td>' + rate + '</td></tr>';
-  });
-  html += '</table></div>';
-  html += '<button class="csv-export-btn" onclick="exportCSV(\'dept\')">⬇ Export CSV</button>';
-  container.innerHTML = html;
-}
-
-function renderTrendReport(data, container) {
-  var weeks = data.weeks || data.trend || data;
-  if (!weeks || (Array.isArray(weeks) && weeks.length === 0)) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📈</div><h3>No trend data</h3></div>';
-    return;
-  }
-  if (!Array.isArray(weeks)) {
-    weeks = Object.keys(weeks).map(function(k) { return { week: k, created: weeks[k].created || weeks[k].tasks || weeks[k].total || 0, completed: weeks[k].completed || 0 }; }).slice(-12);
-  }
-
-  var maxVal = Math.max.apply(null, weeks.map(function(w) { return Math.max(w.created || 0, w.completed || 0); })) || 1;
-
-  var html = '<div class="chart-container"><h4>12-Week Trend (Created vs Completed)</h4>';
-  weeks.forEach(function(w) {
-    var hC = (w.created / maxVal) * 100;
-    var hD = (w.completed / maxVal) * 100;
-    html += '<div style="display:flex;align-items:flex-end;gap:2px;margin-bottom:6px;height:40px;">';
-    html += '<div style="width:10px;height:' + hC + '%;background:#1a73e8;border-radius:2px 2px 0 0;min-height:2px;" title="Created: ' + (w.created || 0) + '"></div>';
-    html += '<div style="width:10px;height:' + hD + '%;background:#34a853;border-radius:2px 2px 0 0;min-height:2px;" title="Completed: ' + (w.completed || 0) + '"></div>';
-    html += '<span style="font-size:9px;color:var(--text-secondary);margin-left:4px;">' + escapeHtml(w.week || w.label || '') + '</span>';
-    html += '</div>';
-  });
-  html += '<div style="display:flex;gap:16px;font-size:12px;color:var(--text-secondary);margin-top:8px;"><span>🔵 Created</span><span>🟢 Completed</span></div></div>';
-
-  html += '<div class="chart-container"><h4>Detail</h4><table class="report-table"><tr><th>Week</th><th>Created</th><th>Completed</th><th>Completion %</th></tr>';
-  weeks.forEach(function(w) {
-    var rate = w.created > 0 ? Math.round((w.completed / w.created) * 100) + '%' : '-';
-    html += '<tr><td>' + escapeHtml(w.week || w.label || '-') + '</td><td>' + (w.created || 0) + '</td><td>' + (w.completed || 0) + '</td><td>' + rate + '</td></tr>';
-  });
-  html += '</table></div>';
-  html += '<button class="csv-export-btn" onclick="exportCSV(\'trend\')">⬇ Export CSV</button>';
-  container.innerHTML = html;
-}
-
-function renderPriorityReport(data, container) {
-  var items = data.distribution || data.priorities || data;
-  if (!items || (Array.isArray(items) && items.length === 0)) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">🥧</div><h3>No data</h3></div>';
-    return;
-  }
-  if (!Array.isArray(items)) {
-    items = Object.keys(items).map(function(k) { return { label: k, count: items[k] }; });
-  }
-
-  var total = items.reduce(function(s, i) { return s + (i.count || 0); }, 0) || 1;
-  var colors = { 'Urgent': '#ea4335', 'High': '#e65100', 'Medium': '#fbbc04', 'Low': '#34a853' };
-
-  var html = '<div class="chart-container"><h4>Priority Distribution</h4><div class="pie-chart">';
-  var conicGrad = items.map(function(i, idx) {
-    var pct = (i.count / total) * 360;
-    var color = colors[i.label] || ['#1a73e8','#34a853','#fbbc04','#ea4335','#9334e6','#ff6d01'][idx % 6];
-    return color + ' ' + (items.slice(0, idx).reduce(function(s, j) { return s + (j.count / total) * 360; }, 0)) + 'deg ' + (items.slice(0, idx + 1).reduce(function(s, j) { return s + (j.count / total) * 360; }, 0)) + 'deg';
-  }).join(', ');
-  html += '<div class="pie-canvas" style="background:conic-gradient(' + conicGrad + ');"></div>';
-  html += '<div class="pie-legend">';
-  items.forEach(function(i) {
-    var color = colors[i.label] || '#1a73e8';
-    var pct = Math.round((i.count / total) * 100);
-    html += '<div class="legend-item"><span class="legend-dot" style="background:' + color + ';"></span> ' + escapeHtml(i.label) + ': ' + i.count + ' (' + pct + '%)</div>';
-  });
-  html += '</div></div></div>';
-
-  html += '<div class="chart-container"><h4>Detail</h4><table class="report-table"><tr><th>Priority</th><th>Count</th><th>%</th></tr>';
-  items.forEach(function(i) {
-    var pct = Math.round((i.count / total) * 100);
-    html += '<tr><td>' + escapeHtml(i.label) + '</td><td>' + i.count + '</td><td>' + pct + '%</td></tr>';
-  });
-  html += '</table></div>';
-  html += '<button class="csv-export-btn" onclick="exportCSV(\'priority\')">⬇ Export CSV</button>';
-  container.innerHTML = html;
-}
-
-function renderAgingReport(data, container) {
-  var buckets = data.aging || data.buckets || data;
-  if (!buckets || (Array.isArray(buckets) && buckets.length === 0)) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">⏰</div><h3>No overdue tasks</h3><p>All caught up!</p></div>';
-    return;
-  }
-  if (!Array.isArray(buckets)) {
-    buckets = Object.keys(buckets).map(function(k) { return { label: k, count: buckets[k] }; });
-  }
-
-  var maxVal = Math.max.apply(null, buckets.map(function(b) { return b.count; })) || 1;
-  var colors = ['#34a853', '#fbbc04', '#e65100', '#ea4335'];
-
-  var html = '<div class="chart-container"><h4>Overdue Aging</h4><div class="bar-chart">';
-  buckets.forEach(function(b, idx) {
-    var pct = (b.count / maxVal) * 100;
-    html += '<div class="bar" style="height:' + pct + '%;background:' + (colors[idx] || '#ea4335') + ';" title="' + escapeHtml(b.label) + ': ' + b.count + '"><span class="bar-value">' + b.count + '</span><span class="bar-label">' + escapeHtml((b.label || '').substring(0, 8)) + '</span></div>';
-  });
-  html += '</div></div>';
-
-  html += '<div class="chart-container"><h4>Detail</h4><table class="report-table"><tr><th>Bucket</th><th>Count</th></tr>';
-  buckets.forEach(function(b) {
-    html += '<tr><td>' + escapeHtml(b.label) + '</td><td>' + (b.count || 0) + '</td></tr>';
-  });
-  html += '</table></div>';
-  html += '<button class="csv-export-btn" onclick="exportCSV(\'aging\')">⬇ Export CSV</button>';
-  container.innerHTML = html;
-}
-
-// ── Notifications ──
-function loadNotifications() {
-  var el = document.getElementById('notif-list');
+  var el = document.getElementById('report-container');
   el.innerHTML = '<div class="loading-center"><span class="spinner"></span> Loading...</div>';
-
-  var cached = getCache('notifications');
-  if (cached) { renderNotifications(cached, el); }
-
-  callApi({ action: 'getNotifications' }, function(err, data) {
-    if (err || !data) {
-      el.innerHTML = '<div class="empty-state"><div class="empty-icon">🔔</div><h3>No notifications</h3></div>';
+  var cached = getCache('rpt_' + type);
+  if (cached) { renderReportData(type, cached, el); return; }
+  var action = type === 'mgmt' ? 'getManagementReports' : 'getReports';
+  var p = type === 'mgmt' ? { action: action } : { action: action, reportType: type };
+  callApi(p, function(err, data) {
+    if (err || !data || data.error) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-icon">📈</div><h3>Could not load</h3></div>';
       return;
     }
-    var items = data.notifications || data;
-    setCache('notifications', items);
-    renderNotifications(items, el);
+    setCache('rpt_' + type, data);
+    renderReportData(type, data, el);
   });
 }
 
-function renderNotifications(items, el) {
-  if (!items || (items.length || 0) === 0) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🔔</div><h3>No notifications</h3><p>You\'re all caught up</p></div>';
-    return;
+function renderReportData(type, data, el) {
+  if (type === 'mgmt') return renderMgmtReport(data, el);
+  else if (type === 'workload') renderWorkload(data, el);
+  else if (type === 'dept') renderDeptReport(data, el);
+  else if (type === 'trend') renderTrend(data, el);
+  else if (type === 'priority') renderPriority(data, el);
+  else if (type === 'aging') renderAging(data, el);
+}
+
+function renderMgmtReport(data, el) {
+  var s = data.summary || {};
+  var depts = data.departments || [];
+  var w = data.weekly || {}; var mo = data.monthly || {};
+  el.innerHTML =
+    '<div class="mgmt-summary">' +
+      '<div class="mgmt-stat"><div class="mgmt-value primary">'+(s.total||0)+'</div><div class="mgmt-label">Total Tasks</div></div>' +
+      '<div class="mgmt-stat"><div class="mgmt-value orange">'+(s.open||0)+'</div><div class="mgmt-label">Open</div></div>' +
+      '<div class="mgmt-stat"><div class="mgmt-value green">'+(s.completed||0)+'</div><div class="mgmt-label">Completed</div></div>' +
+      '<div class="mgmt-stat"><div class="mgmt-value red">'+(s.overdue||0)+'</div><div class="mgmt-label">Overdue</div></div>' +
+    '</div>' +
+    '<div class="chart-container"><div style="display:flex;gap:16px;font-size:13px;font-weight:600;margin-bottom:12px;">' +
+      '<span>📅 This Week: <strong>'+(w.created||0)+'</strong> created, <strong>'+(w.completed||0)+'</strong> completed</span>' +
+      '<span>📅 This Month: <strong>'+(mo.created||0)+'</strong> created, <strong>'+(mo.completed||0)+'</strong> completed</span>' +
+    '</div></div>' +
+    '<div class="chart-container"><h4>Department Performance</h4><table class="report-table">' +
+    '<tr><th>Department</th><th>Total</th><th>Completed</th><th>Rate</th><th>Overdue</th></tr>' +
+    depts.map(function(d) {
+      return '<tr><td><strong>'+esc(d.name)+'</strong></td><td>'+d.total+'</td><td>'+d.completed+'</td><td>'+d.rate+'%</td><td style="color:'+(d.overdue>0?'var(--danger)':'')+'">'+d.overdue+'</td></tr>';
+    }).join('') +
+    '</table></div>' +
+    '<button class="csv-export-btn" onclick="exportCSV(\'mgmt\')">⬇ Export CSV</button>';
+}
+
+function renderWorkload(data, el) {
+  var items = data.workload || data.users || data;
+  if (!Array.isArray(items)) {
+    if (typeof items === 'object') items = Object.keys(items).map(function(k){return{name:k,total:items[k],completed:0,overdue:0}});
   }
-  el.innerHTML = items.map(function(n) {
-    return '<div class="notif-item' + (n.unread ? ' unread' : '') + '" onclick="openTask(\'' + escapeHtml(n.taskId || '') + '\')">' +
-      '<div class="notif-time">' + escapeHtml(n.time || '') + '</div>' +
-      '<div class="notif-text">' + escapeHtml(n.text || n.message || '') + '</div>' +
-    '</div>';
-  }).join('');
+  items = items || [];
+  var max = Math.max.apply(null, items.map(function(u){return u.total||u.count||0}))||1;
+  var html = '<div class="chart-container"><h4>Tasks per User</h4><div class="bar-chart">' +
+    items.map(function(u) {
+      var v = u.total||u.count||0;
+      var pct = (v/max)*100;
+      var c = v > 10 ? '#e17055' : v > 5 ? '#fdcb6e' : '#6c5ce7';
+      return '<div class="bar" style="height:'+pct+'%;background:'+c+';" title="'+esc(u.name)+': '+v+'">' +
+        '<span class="bar-value">'+v+'</span><span class="bar-label">'+esc((u.name||'').substring(0,8))+'</span></div>';
+    }).join('') + '</div></div>' +
+    '<div class="chart-container"><h4>Detail</h4><table class="report-table">' +
+    '<tr><th>User</th><th>Tasks</th><th>Completed</th><th>Overdue</th><th>Rate</th></tr>' +
+    items.map(function(u) {
+      var r = u.total > 0 ? Math.round((u.completed/u.total)*100)+'%' : '-';
+      return '<tr><td>'+esc(u.name)+'</td><td>'+(u.total||u.count||0)+'</td><td>'+(u.completed||0)+'</td><td>'+(u.overdue||0)+'</td><td>'+r+'</td></tr>';
+    }).join('') + '</table></div>';
+  el.innerHTML = html + '<button class="csv-export-btn" onclick="exportCSV(\'workload\')">⬇ Export CSV</button>';
 }
 
-// ── Comments (in task sheet) ──
-function loadComments(taskId) {
-  if (!taskId) return;
-  callApi({ action: 'getComments', taskId: taskId }, function(err, data) {
-    var el = document.getElementById('sheet-comments');
-    if (!el) return;
-    var items = data.comments || data || [];
-    el.innerHTML = items.map(function(c) {
-      return '<div class="comment-item"><div class="comment-meta"><span class="comment-author">' + escapeHtml(c.author || '') + '</span> • ' + escapeHtml(c.time || '') + '</div><div>' + escapeHtml(c.text || '') + '</div></div>';
-    }).join('');
-  });
+function renderDeptReport(data, el) {
+  var items = data.departments || data.depts || data;
+  if (!Array.isArray(items)) items = [];
+  var max = Math.max.apply(null, items.map(function(d){return d.total||0}))||1;
+  var html = '<div class="chart-container"><h4>Department Performance</h4><div class="bar-chart">' +
+    items.map(function(d) {
+      var pct = ((d.total||0)/max)*100;
+      var r = d.total > 0 ? (d.completed/d.total)*100 : 0;
+      var c = r > 80 ? '#00b894' : r > 50 ? '#fdcb6e' : '#e17055';
+      return '<div class="bar" style="height:'+pct+'%;background:'+c+';" title="'+esc(d.name)+'">' +
+        '<span class="bar-value">'+(d.total||0)+'</span><span class="bar-label">'+esc((d.name||'').substring(0,8))+'</span></div>';
+    }).join('') + '</div></div>' +
+    '<div class="chart-container"><h4>Detail</h4><table class="report-table">' +
+    '<tr><th>Department</th><th>Total</th><th>Completed</th><th>Overdue</th><th>Rate</th></tr>' +
+    items.map(function(d) {
+      var r = d.total > 0 ? Math.round((d.completed/d.total)*100)+'%' : '-';
+      return '<tr><td>'+esc(d.name)+'</td><td>'+(d.total||0)+'</td><td>'+(d.completed||0)+'</td><td>'+(d.overdue||0)+'</td><td>'+r+'</td></tr>';
+    }).join('') + '</table></div>';
+  el.innerHTML = html + '<button class="csv-export-btn" onclick="exportCSV(\'dept\')">⬇ Export CSV</button>';
 }
 
-function addComment(taskId) {
-  var input = document.getElementById('comment-input');
-  if (!input) return;
-  var text = input.value.trim();
-  if (!text || !taskId) return;
-  input.value = '';
-  callApi({ action: 'addComment', taskId: taskId, text: text }, function(err, data) {
-    if (err) { showPopup('error', 'Comment Failed', err); return; }
-    loadComments(taskId);
-    showPopup('info', 'Comment Added', '');
-  });
+function renderTrend(data, el) {
+  var w = data.trend || data.weeks || data;
+  if (!Array.isArray(w)) { w = Object.keys(w||{}).map(function(k){return{week:k,created:(w[k]||{}).created||0,completed:(w[k]||{}).completed||0}}).slice(-12); }
+  var max = Math.max.apply(null, w.map(function(x){return Math.max(x.created||0,x.completed||0)}))||1;
+  var html = '<div class="chart-container"><h4>12-Week Trend</h4>' +
+    w.map(function(x) {
+      var hc = ((x.created||0)/max)*100, hd = ((x.completed||0)/max)*100;
+      return '<div style="display:flex;align-items:flex-end;gap:3px;margin-bottom:6px;height:44px;">' +
+        '<div style="width:12px;height:'+hc+'%;background:#6c5ce7;border-radius:3px 3px 0 0;min-height:2px;" title="Created: '+(x.created||0)+'"></div>' +
+        '<div style="width:12px;height:'+hd+'%;background:#00b894;border-radius:3px 3px 0 0;min-height:2px;" title="Completed: '+(x.completed||0)+'"></div>' +
+        '<span style="font-size:9px;color:var(--text-secondary);margin-left:2px;">'+esc(x.week||'')+'</span></div>';
+    }).join('') +
+    '<div style="display:flex;gap:16px;font-size:12px;color:var(--text-secondary);margin-top:8px;"><span>🟣 Created</span><span>🟢 Completed</span></div></div>' +
+    '<div class="chart-container"><h4>Detail</h4><table class="report-table"><tr><th>Week</th><th>Created</th><th>Completed</th><th>%</th></tr>' +
+    w.map(function(x) {
+      var r = x.created > 0 ? Math.round((x.completed/x.created)*100)+'%' : '-';
+      return '<tr><td>'+esc(x.week||'-')+'</td><td>'+(x.created||0)+'</td><td>'+(x.completed||0)+'</td><td>'+r+'</td></tr>';
+    }).join('') + '</table></div>';
+  el.innerHTML = html + '<button class="csv-export-btn" onclick="exportCSV(\'trend\')">⬇ Export CSV</button>';
+}
+
+function renderPriority(data, el) {
+  var items = data.distribution || data.priorities || data;
+  if (!Array.isArray(items)) items = Object.keys(items||{}).map(function(k){return{label:k,count:items[k]}});
+  var total = items.reduce(function(s,i){return s+(i.count||0)},0)||1;
+  var colors = {Urgent:'#e17055',High:'#fdcb6e',Medium:'#6c5ce7',Low:'#00b894'};
+  var conic = items.map(function(i,idx){
+    var pct = (i.count/total)*360;
+    var c = colors[i.label]||['#6c5ce7','#00b894','#fdcb6e','#e17055','#a29bfe','#00cec9'][idx%6];
+    var start = items.slice(0,idx).reduce(function(s,j){return s+(j.count/total)*360},0);
+    var end = items.slice(0,idx+1).reduce(function(s,j){return s+(j.count/total)*360},0);
+    return c+' '+start+'deg '+end+'deg';
+  }).join(', ');
+  var html = '<div class="chart-container"><h4>Priority Distribution</h4><div class="pie-chart">' +
+    '<div class="pie-canvas" style="background:conic-gradient('+conic+');"></div>' +
+    '<div class="pie-legend">' +
+    items.map(function(i){
+      var c = colors[i.label]||'#6c5ce7';
+      var p = Math.round((i.count/total)*100);
+      return '<div class="legend-item"><span class="legend-dot" style="background:'+c+';"></span> '+esc(i.label)+': '+i.count+' ('+p+'%)</div>';
+    }).join('') + '</div></div></div>' +
+    '<div class="chart-container"><h4>Detail</h4><table class="report-table"><tr><th>Priority</th><th>Count</th><th>%</th></tr>' +
+    items.map(function(i){
+      var p = Math.round((i.count/total)*100);
+      return '<tr><td>'+esc(i.label)+'</td><td>'+i.count+'</td><td>'+p+'%</td></tr>';
+    }).join('') + '</table></div>';
+  el.innerHTML = html + '<button class="csv-export-btn" onclick="exportCSV(\'priority\')">⬇ Export CSV</button>';
+}
+
+function renderAging(data, el) {
+  var b = data.aging || data.buckets || data;
+  if (!Array.isArray(b)) b = Object.keys(b||{}).map(function(k){return{label:k,count:b[k]}});
+  if (!b.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">⏰</div><h3>No overdue tasks</h3></div>'; return; }
+  var max = Math.max.apply(null, b.map(function(x){return x.count}))||1;
+  var cs = ['#00b894','#fdcb6e','#e17055','#d63031'];
+  var html = '<div class="chart-container"><h4>Overdue Aging</h4><div class="bar-chart">' +
+    b.map(function(x,i){
+      var pct = (x.count/max)*100;
+      return '<div class="bar" style="height:'+pct+'%;background:'+(cs[i]||'#e17055')+';" title="'+esc(x.label)+': '+x.count+'">' +
+        '<span class="bar-value">'+x.count+'</span><span class="bar-label">'+esc((x.label||'').substring(0,10))+'</span></div>';
+    }).join('') + '</div></div>' +
+    '<div class="chart-container"><h4>Detail</h4><table class="report-table"><tr><th>Bucket</th><th>Count</th></tr>' +
+    b.map(function(x){return'<tr><td>'+esc(x.label)+'</td><td>'+(x.count||0)+'</td></tr>'}).join('') + '</table></div>';
+  el.innerHTML = html + '<button class="csv-export-btn" onclick="exportCSV(\'aging\')">⬇ Export CSV</button>';
 }
 
 // ── CSV Export ──
 function exportCSV(type) {
-  var container = document.getElementById('report-container');
-  var tables = container.querySelectorAll('.report-table');
-  if (tables.length === 0) { showPopup('error', 'No Data', 'Nothing to export'); return; }
-
+  var tables = document.getElementById('report-container').querySelectorAll('.report-table');
+  if (!tables.length) return popup('error','No Data','Nothing to export');
   var csv = [];
-  tables.forEach(function(table) {
-    var rows = table.querySelectorAll('tr');
-    rows.forEach(function(row) {
-      var cells = row.querySelectorAll('th, td');
-      var rowData = Array.from(cells).map(function(c) { return '"' + (c.textContent || '').replace(/"/g, '""') + '"'; }).join(',');
-      csv.push(rowData);
+  tables.forEach(function(t) {
+    t.querySelectorAll('tr').forEach(function(r) {
+      csv.push(Array.from(r.querySelectorAll('th,td')).map(function(c){return'"'+(c.textContent||'').replace(/"/g,'""')+'"'}).join(','));
     });
   });
+  var b = new Blob([csv.join('\n')],{type:'text/csv;charset=utf-8;'});
+  var a = document.createElement('a'); a.href = URL.createObjectURL(b);
+  a.download = type+'-report.csv'; a.click();
+  URL.revokeObjectURL(a.href);
+  popup('success','Exported',type+' report downloaded');
+}
 
-  var blob = new Blob([csv.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  var link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = type + '-report.csv';
-  link.click();
-  URL.revokeObjectURL(link.href);
-  showPopup('success', 'Exported', type + ' report downloaded');
+// ── Version ──
+function refreshVersion() {
+  document.getElementById('settings-refreshed').textContent = new Date().toLocaleTimeString();
+  popup('info','Refreshed','Checking for update...');
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration().then(function(r) { if (r) { r.update(); setTimeout(function(){location.reload()},1000); } });
+  }
+}
+
+function clearCache() {
+  STATE.cached = {};
+  localStorage.removeItem('tf_cache');
+  popup('info','Cache Cleared','Local cache cleared');
+  setTimeout(function(){location.reload()},500);
 }
 
 // ── Cache ──
 function getCache(key) {
   if (STATE.cached[key]) return STATE.cached[key];
   try {
-    var stored = localStorage.getItem('tm_cache_' + key);
-    if (stored) {
-      var parsed = JSON.parse(stored);
-      if (Date.now() - parsed.ts < 120000) { // 2 min TTL
-        STATE.cached[key] = parsed.data;
-        return parsed.data;
-      }
-    }
-  } catch(e) {}
+    var s = localStorage.getItem('tf_cache_'+key);
+    if (s) { var p = JSON.parse(s); if (Date.now()-p.ts<120000) { STATE.cached[key]=p.data; return p.data; } }
+  } catch(e){}
   return null;
 }
 
 function setCache(key, data) {
   STATE.cached[key] = data;
-  try {
-    localStorage.setItem('tm_cache_' + key, JSON.stringify({ data: data, ts: Date.now() }));
-  } catch(e) {}
+  try { localStorage.setItem('tf_cache_'+key, JSON.stringify({data:data,ts:Date.now()})); } catch(e){}
 }
 
 // ── Helpers ──
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
-}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+function fmtDate(d) { if(!d)return''; var dt=new Date(d); if(isNaN(dt.getTime()))return String(d); return ('0'+dt.getDate()).slice(-2)+'/'+('0'+(dt.getMonth()+1)).slice(-2)+'/'+dt.getFullYear(); }
 
-function formatDate(d) {
-  if (!d) return '';
-  var date = new Date(d);
-  if (isNaN(date.getTime())) return String(d);
-  return ('0' + date.getDate()).slice(-2) + '/' + ('0' + (date.getMonth() + 1)).slice(-2) + '/' + date.getFullYear();
-}
-
-function showPopup(type, title, subtitle) {
-  var overlay = document.getElementById('popup-overlay');
-  var icons = { success: '✅', error: '❌', info: 'ℹ️' };
+function popup(type, title, subtitle) {
+  var icons = {success:'✅',error:'❌',info:'ℹ️'};
   var box = document.createElement('div');
-  box.className = 'popup-box ' + type;
-  box.innerHTML = '<span class="popup-icon">' + (icons[type] || 'ℹ️') + '</span><span>' + (title ? '<strong>' + escapeHtml(title) + '</strong> ' : '') + escapeHtml(subtitle || '') + '</span>';
-  overlay.appendChild(box);
-  setTimeout(function() {
-    box.style.opacity = '0';
-    box.style.transform = 'translateY(-10px)';
-    box.style.transition = '.3s ease';
-    setTimeout(function() { if (box.parentNode) box.parentNode.removeChild(box); }, 300);
-  }, 2500);
+  box.className='popup-box '+type;
+  box.innerHTML='<span class="popup-icon">'+(icons[type]||'ℹ️')+'</span><span>'+(title?'<strong>'+esc(title)+'</strong> ':'')+esc(subtitle||'')+'</span>';
+  document.getElementById('popup-overlay').appendChild(box);
+  setTimeout(function(){
+    box.style.opacity='0'; box.style.transform='translateY(-10px)'; box.style.transition='.3s ease';
+    setTimeout(function(){if(box.parentNode)box.parentNode.removeChild(box)},300);
+  },2500);
 }
 
 function showError(msg) {
   var el = document.getElementById('login-error');
-  el.textContent = msg;
-  el.style.display = 'block';
+  el.textContent = msg; el.style.display = 'block';
 }
 
-// ── Filter Event Listeners ──
+// ── Init Events ──
 document.addEventListener('DOMContentLoaded', function() {
-  ['filter-status','filter-priority','filter-assignee','filter-date-from','filter-date-to','filter-search'].forEach(function(id) {
+  ['filter-status','filter-priority','filter-assignee','filter-date-from','filter-date-to'].forEach(function(id) {
     document.getElementById(id).addEventListener('change', renderTasks);
-    if (id === 'filter-search') document.getElementById(id).addEventListener('input', renderTasks);
   });
-
-  document.querySelectorAll('.report-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() { renderReport(this.dataset.report); });
+  document.getElementById('filter-search').addEventListener('input', renderTasks);
+  document.querySelectorAll('.report-btn').forEach(function(b) {
+    b.addEventListener('click', function() { renderReport(this.dataset.report); });
   });
-
   autoLogin();
 });

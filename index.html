@@ -2,33 +2,26 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#1a73e8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#6c5ce7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="manifest.json">
-<title>Task Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<title>TaskFlow</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
 <div id="login-page">
   <div class="login-card">
-    <div class="login-logo">📋</div>
-    <h1>Task Manager</h1>
-    <p>Enterprise Task Management System</p>
-    <div class="form-group">
-      <label>Web App URL</label>
-      <input type="url" id="login-url" placeholder="https://script.google.com/.../exec" autocomplete="url">
-    </div>
-    <div class="form-group">
-      <label>Work Email</label>
-      <input type="email" id="login-email" placeholder="you@company.com" autocomplete="email">
-    </div>
-    <div class="form-group">
-      <label>API Token</label>
-      <input type="password" id="login-token" placeholder="Enter your API token" autocomplete="off">
-    </div>
+    <div class="login-logo">⚡</div>
+    <h1>TaskFlow</h1>
+    <p>Enterprise Task Management</p>
+    <div class="form-group"><label>Web App URL</label><input type="url" id="login-url" placeholder="https://script.google.com/.../exec" autocomplete="url"></div>
+    <div class="form-group"><label>Work Email</label><input type="email" id="login-email" placeholder="you@company.com" autocomplete="email"></div>
+    <div class="form-group"><label>API Token</label><input type="password" id="login-token" placeholder="Enter API token" autocomplete="off"></div>
     <button class="login-btn" id="login-btn" onclick="login()">Sign In</button>
     <div class="login-error" id="login-error"></div>
   </div>
@@ -36,11 +29,11 @@
 
 <div id="app">
   <nav class="top-nav">
-    <div class="logo"><span>📋</span> Tasks</div>
+    <div class="logo">⚡ TaskFlow</div>
     <div class="user-info">
       <div class="avatar" id="user-avatar">U</div>
-      <span class="email" id="user-email">user@co</span>
-      <button id="logout-btn" onclick="logout()" title="Logout">⏻</button>
+      <span class="email" id="user-email">user</span>
+      <button id="logout-btn" onclick="logout()">⏻</button>
     </div>
   </nav>
 
@@ -49,43 +42,40 @@
     <section id="tab-dashboard" class="tab-content active">
       <div class="section-title">Dashboard <span class="sub" id="dash-dept"></span></div>
       <div id="dash-stats" class="stats-grid"></div>
-      <div class="card">
-        <div class="card-header"><h3>Due Today</h3></div>
-        <div id="dash-due-today" class="dashboard-list"></div>
-      </div>
-      <div class="card">
-        <div class="card-header"><h3>Overdue</h3></div>
-        <div id="dash-overdue" class="dashboard-list"></div>
-      </div>
-      <div class="card">
-        <div class="card-header"><h3>Completed Yesterday</h3></div>
-        <div id="dash-completed" class="dashboard-list"></div>
-      </div>
+      <div class="card"><div class="card-header"><h3>📋 Due Today</h3><span class="card-action" onclick="switchTab('tasks')">View all</span></div><div id="dash-due-today" class="dashboard-list"></div></div>
+      <div class="card"><div class="card-header"><h3>⚠️ Overdue</h3><span class="card-action" onclick="switchTab('tasks')">View all</span></div><div id="dash-overdue" class="dashboard-list"></div></div>
+      <div class="card"><div class="card-header"><h3>✅ Completed Yesterday</h3></div><div id="dash-completed" class="dashboard-list"></div></div>
     </section>
 
     <!-- Tasks -->
     <section id="tab-tasks" class="tab-content">
       <div class="section-title">Tasks <span class="sub" id="tasks-dept"></span></div>
-      <div class="filter-bar" id="filter-bar">
+      <div class="filter-bar">
         <div class="filter-row">
           <select id="filter-status"><option value="">Status</option><option value="To Do">To Do</option><option value="In Progress">In Progress</option><option value="Completed">Completed</option><option value="Cancelled">Cancelled</option></select>
           <select id="filter-priority"><option value="">Priority</option><option value="Urgent">Urgent</option><option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option></select>
           <select id="filter-assignee"><option value="">Assignee</option></select>
         </div>
         <div class="filter-row">
-          <input type="date" id="filter-date-from" placeholder="Due from">
-          <input type="date" id="filter-date-to" placeholder="Due to">
-          <input type="search" id="filter-search" placeholder="Search task name or ID...">
+          <input type="date" id="filter-date-from">
+          <input type="date" id="filter-date-to">
+          <input type="search" id="filter-search" placeholder="Search...">
         </div>
-        <button class="filter-clear" onclick="clearFilters()">Clear all filters</button>
+        <button class="filter-clear" onclick="clearFilters()">Clear filters</button>
       </div>
       <div class="filter-count" id="filter-count"></div>
       <div id="task-list" class="task-list"></div>
     </section>
 
+    <!-- Departments -->
+    <section id="tab-depts" class="tab-content">
+      <div class="section-title">Departments</div>
+      <div id="dept-list"></div>
+    </section>
+
     <!-- Calendar -->
     <section id="tab-calendar" class="tab-content">
-      <div class="section-title">Calendar <span class="sub" id="cal-dept"></span></div>
+      <div class="section-title">Calendar</div>
       <div class="card">
         <div class="cal-nav">
           <button onclick="calPrev()">‹</button>
@@ -99,97 +89,67 @@
 
     <!-- Reports -->
     <section id="tab-reports" class="tab-content">
-      <div class="section-title">Reports <span class="sub" id="reports-dept"></span></div>
-      <div class="report-selector" id="report-selector">
-        <button class="report-btn active" data-report="workload">User Workload</button>
-        <button class="report-btn" data-report="dept">Dept Performance</button>
-        <button class="report-btn" data-report="trend">12-Week Trend</button>
-        <button class="report-btn" data-report="priority">Priority Dist</button>
-        <button class="report-btn" data-report="aging">Overdue Aging</button>
+      <div class="section-title">Reports</div>
+      <div class="report-selector">
+        <button class="report-btn active" data-report="mgmt">Management</button>
+        <button class="report-btn" data-report="workload">Workload</button>
+        <button class="report-btn" data-report="dept">Departments</button>
+        <button class="report-btn" data-report="trend">Trend</button>
+        <button class="report-btn" data-report="priority">Priority</button>
+        <button class="report-btn" data-report="aging">Aging</button>
       </div>
       <div id="report-container"></div>
-    </section>
-
-    <!-- Notifications -->
-    <section id="tab-notifications" class="tab-content">
-      <div class="section-title">Notifications <span class="sub" id="notif-dept"></span></div>
-      <div id="notif-list"></div>
     </section>
 
     <!-- Settings -->
     <section id="tab-settings" class="tab-content">
       <div class="section-title">Settings</div>
       <div class="card">
-        <div class="settings-item">
-          <div><div class="settings-label">Account</div><div class="settings-desc">Signed in as</div></div>
-          <div class="settings-value" id="settings-email">-</div>
-        </div>
-        <div class="settings-item">
-          <div><div class="settings-label">Department</div><div class="settings-desc">Your assigned department</div></div>
-          <div class="settings-value" id="settings-dept">-</div>
-        </div>
-        <div class="settings-item">
-          <div><div class="settings-label">API Token</div><div class="settings-desc">Current token (tap to copy)</div></div>
-          <div class="settings-value" id="settings-token" onclick="copyToken()" style="cursor:pointer;font-family:monospace;font-size:11px;">-</div>
-        </div>
-        <div class="settings-item">
-          <div><div class="settings-label">Web App URL</div><div class="settings-desc">Connected URL</div></div>
-          <div class="settings-value" id="settings-url" style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">-</div>
-        </div>
-        <div class="settings-item">
-          <div><div class="settings-label">Cache</div><div class="settings-desc">Clear local cache &amp; reload</div></div>
-          <button style="padding:6px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);font-size:12px;cursor:pointer;" onclick="clearCache()">Clear Cache</button>
-        </div>
-        <div class="settings-item">
-          <div><div class="settings-label">App Version</div><div class="settings-desc">Commit <span id="settings-commit">e41ce20</span> • <span id="settings-date">30 May 2026</span></div></div>
-          <div class="settings-value" id="settings-version">2.0</div>
-        </div>
-        <div class="settings-item">
-          <div><div class="settings-label">Last Refreshed</div><div class="settings-desc">Tap to update now</div></div>
-          <div class="settings-value" id="settings-refreshed" onclick="refreshVersion()" style="cursor:pointer;">just now</div>
-        </div>
+        <div class="settings-item"><div><div class="settings-label">Account</div><div class="settings-desc">Signed in as</div></div><div class="settings-value" id="settings-email">-</div></div>
+        <div class="settings-item"><div><div class="settings-label">Department</div><div class="settings-desc">Your department</div></div><div class="settings-value" id="settings-dept">-</div></div>
+        <div class="settings-item"><div><div class="settings-label">Version</div><div class="settings-desc"><span id="settings-commit">68dca8b</span> • <span id="settings-date">30 May 2026</span></div></div><div class="settings-value">3.0</div></div>
+        <div class="settings-item"><div><div class="settings-label">Last Refreshed</div><div class="settings-desc">Tap to check update</div></div><div class="settings-value" id="settings-refreshed" onclick="refreshVersion()" style="cursor:pointer;color:var(--primary);font-weight:600">just now</div></div>
+        <div class="settings-item"><div><div class="settings-label">Cache</div><div class="settings-desc">Clear cached data</div></div><button style="padding:8px 16px;border:2px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);font-size:12px;font-weight:600;cursor:pointer;color:var(--text-secondary)" onclick="clearCache()">Clear</button></div>
       </div>
     </section>
   </main>
 
-  <!-- Floating Action Button -->
+  <nav class="tab-bar">
+    <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')"><span class="tab-icon">📊</span><span class="tab-label">Home</span></button>
+    <button class="tab-btn" data-tab="tasks" onclick="switchTab('tasks')"><span class="tab-icon">📋</span><span class="tab-label">Tasks</span><span class="badge" id="tasks-badge" style="display:none">0</span></button>
+    <button class="tab-btn" data-tab="depts" onclick="switchTab('depts')"><span class="tab-icon">🏢</span><span class="tab-label">Depts</span></button>
+    <button class="tab-btn" data-tab="calendar" onclick="switchTab('calendar')"><span class="tab-icon">📅</span><span class="tab-label">Calendar</span></button>
+    <button class="tab-btn" data-tab="reports" onclick="switchTab('reports')"><span class="tab-icon">📈</span><span class="tab-label">Reports</span></button>
+    <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')"><span class="tab-icon">⚙️</span><span class="tab-label">Settings</span></button>
+  </nav>
+
   <button class="fab" id="fab-btn" onclick="showCreateTask()">+</button>
 
-  <!-- Create Task Modal -->
+  <!-- Create Modal -->
   <div class="modal-overlay" id="modal-overlay" onclick="closeModal()"></div>
   <div class="modal" id="create-modal">
-    <div class="modal-header">
-      <h3>Create Task</h3>
-      <button class="modal-close" onclick="closeModal()">✕</button>
-    </div>
-    <div class="create-form" id="create-form">
-      <input type="text" id="create-task-name" placeholder="Task Name *" required>
-      <select id="create-priority"><option value="Medium">Medium</option><option value="High">High</option><option value="Low">Low</option><option value="Urgent">Urgent</option></select>
-      <input type="text" id="create-assignee" placeholder="Assignee Name *" list="staff-list">
+    <div class="modal-header"><h3>Create Task</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="create-form">
+      <input type="text" id="create-task-name" placeholder="Task name *">
+      <div class="form-row">
+        <select id="create-priority"><option value="Medium">Medium</option><option value="High">High</option><option value="Low">Low</option><option value="Urgent">Urgent</option></select>
+        <select id="create-dept"><option value="">Department</option></select>
+      </div>
+      <input type="text" id="create-assignee" placeholder="Assignee name *" list="staff-list">
       <datalist id="staff-list"></datalist>
       <input type="date" id="create-due-date">
       <textarea id="create-description" placeholder="Description (optional)" rows="3"></textarea>
-      <select id="create-dept"><option value="">Department (auto)</option></select>
       <button class="submit-btn" id="create-submit" onclick="submitTask()">Create Task</button>
     </div>
   </div>
 
-  <nav class="tab-bar" id="tab-bar">
-    <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')"><span class="tab-icon">📊</span><span class="tab-label">Dashboard</span></button>
-    <button class="tab-btn" data-tab="tasks" onclick="switchTab('tasks')"><span class="tab-icon">📋</span><span class="tab-label">Tasks</span><span class="badge" id="tasks-badge" style="display:none">0</span></button>
-    <button class="tab-btn" data-tab="calendar" onclick="switchTab('calendar')"><span class="tab-icon">📅</span><span class="tab-label">Calendar</span></button>
-    <button class="tab-btn" data-tab="reports" onclick="switchTab('reports')"><span class="tab-icon">📈</span><span class="tab-label">Reports</span></button>
-    <button class="tab-btn" data-tab="notifications" onclick="switchTab('notifications')"><span class="tab-icon">🔔</span><span class="tab-label">Alerts</span><span class="badge" id="notif-badge" style="display:none">0</span></button>
-    <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')"><span class="tab-icon">⚙️</span><span class="tab-label">Settings</span></button>
-  </nav>
-
-  <!-- Task Detail Bottom Sheet -->
+  <!-- Task Detail Sheet -->
   <div class="sheet-overlay" id="sheet-overlay" onclick="closeSheet()"></div>
   <div class="sheet" id="task-sheet">
     <div class="handle"></div>
     <h2 id="sheet-title">Task</h2>
-    <div class="sheet-meta" id="sheet-meta">ID: -</div>
-    <div id="sheet-details"></div>
+    <div class="sheet-meta" id="sheet-meta">-</div>
+    <div class="detail-grid" id="sheet-details"></div>
     <select class="status-select" id="sheet-status">
       <option value="To Do">To Do</option>
       <option value="In Progress">In Progress</option>
@@ -197,12 +157,11 @@
       <option value="Cancelled">Cancelled</option>
     </select>
     <div class="sheet-actions">
-      <button class="btn-update" onclick="updateTaskStatus()">Update Status</button>
-      <button class="btn-close-sheet" onclick="closeSheet()">Close</button>
+      <button class="btn-primary" onclick="updateTaskStatus()">Update Status</button>
+      <button class="btn-secondary" onclick="closeSheet()">Close</button>
     </div>
   </div>
 
-  <!-- Popup Toast -->
   <div class="popup-overlay" id="popup-overlay"></div>
 </div>
 
