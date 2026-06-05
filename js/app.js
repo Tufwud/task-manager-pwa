@@ -45,21 +45,14 @@ function login() {
     localStorage.setItem('tf_url', STATE.url);
     localStorage.setItem('tf_email', STATE.email);
     localStorage.setItem('tf_token', STATE.token);
-    STATE.dept = data.dept || '';
+    STATE.dept = data.userDept || data.dept || '';
+    STATE.depts = data.depts || [];
     document.getElementById('login-page').classList.add('hidden');
     document.getElementById('app').classList.add('active');
     document.getElementById('user-email').textContent = email.split('@')[0];
     document.getElementById('user-avatar').textContent = email.charAt(0).toUpperCase();
     init();
   });
-}
-
-function logout() {
-  ['tf_url','tf_email','tf_token'].forEach(function(k) { localStorage.removeItem(k); });
-  STATE.url = ''; STATE.email = ''; STATE.token = ''; STATE.tasks = []; STATE.cached = {};
-  document.getElementById('app').classList.remove('active');
-  document.getElementById('login-page').classList.remove('hidden');
-  document.getElementById('login-token').value = '';
 }
 
 function autoLogin() {
@@ -74,7 +67,8 @@ function autoLogin() {
 
   callApi({ action: 'getDashboard' }, function(err, data) {
     if (err || !data || data.error) { logout(); return; }
-    STATE.dept = data.dept || '';
+    STATE.dept = data.userDept || data.dept || '';
+    STATE.depts = data.depts || [];
     document.getElementById('login-page').classList.add('hidden');
     document.getElementById('app').classList.add('active');
     document.getElementById('user-email').textContent = email.split('@')[0];
@@ -90,7 +84,7 @@ function init() {
   document.getElementById('settings-dept').textContent = STATE.dept || 'All';
   var d = new Date();
   STATE.calMonth = d.getMonth(); STATE.calYear = d.getFullYear();
-  loadDashboard(); loadTasks();
+  loadDashboard();
 }
 
 // ── Tab Switching ──
@@ -106,23 +100,34 @@ function switchTab(name) {
   else if (name === 'reports') renderReport(STATE.activeReport);
 }
 
-// ── Dashboard ──
+// ── Dashboard (single API call — also loads tasks + depts) ──
 function loadDashboard() {
   var el = document.getElementById('dash-stats');
+  var taskEl = document.getElementById('task-list');
   el.innerHTML = '<div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div>';
+  if (taskEl) taskEl.innerHTML = '<div class="loading-center"><span class="spinner"></span></div>';
   var cached = getCache('dash');
   var dueEl = document.getElementById('dash-due-today');
   var overEl = document.getElementById('dash-overdue');
   var compEl = document.getElementById('dash-completed');
-  if (cached) { renderDash(cached, el, dueEl, overEl, compEl); }
+  if (cached) {
+    STATE.tasks = cached.tasks || [];
+    STATE.depts = cached.depts || [];
+    renderDash(cached, el, dueEl, overEl, compEl);
+  }
 
   callApi({ action: 'getDashboard' }, function(err, data) {
     if (err || !data || data.error) {
       if (!cached) el.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><h3>Could not load</h3></div>';
       return;
     }
+    STATE.tasks = data.tasks || [];
+    STATE.depts = data.depts || [];
+    if (data.userDept) STATE.dept = data.userDept;
     setCache('dash', data);
     renderDash(data, el, dueEl, overEl, compEl);
+    document.getElementById('settings-dept').textContent = STATE.dept || 'All';
+    renderTasks();
   });
 }
 
@@ -148,23 +153,7 @@ function taskListItems(arr) {
   }).join('');
 }
 
-// ── Tasks ──
-function loadTasks() {
-  var cached = getCache('tasks');
-  if (cached) { STATE.tasks = cached; renderTasks(); }
-  callApi({ action: 'getTasks' }, function(err, data) {
-    if (err || !data || data.error) {
-      if (!cached) document.getElementById('task-list').innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><h3>Could not load</h3></div>';
-      return;
-    }
-    var t = data.tasks || data || [];
-    STATE.tasks = t;
-    if (data.depts) STATE.depts = data.depts;
-    setCache('tasks', t);
-    renderTasks(); populateFilterStaff();
-  });
-}
-
+// ── Tasks (uses STATE.tasks from dashboard, no API call) ──
 function renderTasks() {
   var el = document.getElementById('task-list');
   var st = document.getElementById('filter-status').value;
@@ -222,40 +211,33 @@ function populateFilterStaff() {
 function loadDepts() {
   var el = document.getElementById('dept-list');
   var showDept = STATE.dept || null;
-  el.innerHTML = '<div class="loading-center"><span class="spinner"></span></div>';
-
-  var cached = getCache('depts');
-  if (cached) { renderDepts(cached, el, showDept); }
-
-  callApi({ action: 'getDeptTasks' }, function(err, data) {
-    if (err || !data || data.error) {
-      el.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><h3>Could not load</h3></div>';
-      return;
-    }
-    var depts = data.departments || [];
-    setCache('depts', depts);
-    renderDepts(depts, el, showDept);
+  if (!STATE.tasks || !STATE.tasks.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><h3>No tasks yet</h3></div>';
+    return;
+  }
+  var grouped = {};
+  STATE.tasks.forEach(function(t) {
+    var d = t.dept || 'Other';
+    if (!grouped[d]) grouped[d] = [];
+    grouped[d].push(t);
   });
-}
-
-function renderDepts(depts, el, showDept) {
-  if (!depts || !depts.length) {
+  var deptNames = Object.keys(grouped).sort();
+  if (showDept) deptNames = deptNames.filter(function(d) { return d === showDept; });
+  if (!deptNames.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><h3>No departments</h3></div>';
     return;
   }
-  var filtered = depts;
-  if (showDept) filtered = depts.filter(function(d) { return d.dept === showDept; });
-  el.innerHTML = filtered.map(function(d) {
-    if (!d.tasks || !d.tasks.length) return '';
-    return '<div class="dept-group">' +
-      '<div class="dept-header" onclick="this.nextElementSibling.classList.toggle(\'hidden\')">' +
-        esc(d.dept) + ' <span class="dept-count">' + d.count + ' tasks</span>' +
+  el.innerHTML = deptNames.map(function(d) {
+    var tasks = grouped[d];
+    return '<div class="dept-group" style="margin-bottom:12px;">' +
+      '<div class="dept-header" onclick="this.nextElementSibling.classList.toggle(\'hidden\')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--bg-card);border-radius:var(--radius-sm) var(--radius-sm) 0 0;border:2px solid var(--border);border-bottom:none;font-weight:700;font-size:14px;color:var(--text-primary);">' +
+        esc(d) + ' <span class="dept-count" style="font-size:12px;color:var(--text-secondary);font-weight:500;">' + tasks.length + ' tasks</span>' +
       '</div>' +
-      '<div class="dept-tasks">' +
-        d.tasks.map(function(t) {
-          return '<div class="task-item priority-' + (t.priority||'Medium') + '" onclick="openTask(\'' + esc(t.id) + '\')">' +
-            '<div class="task-top"><span class="task-id">' + esc(t.id) + '</span><span class="task-name">' + esc(t.task) + '</span></div>' +
-            '<div class="task-bottom">' +
+      '<div class="dept-tasks" style="border:2px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);overflow:hidden;">' +
+        tasks.map(function(t) {
+          return '<div class="task-item priority-' + (t.priority||'Medium') + '" onclick="openTask(\'' + esc(t.id) + '\')" style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;">' +
+            '<div class="task-top"><span class="task-id">' + esc(t.id) + '</span> <span class="task-name">' + esc(t.task) + '</span></div>' +
+            '<div class="task-bottom" style="margin-top:4px;">' +
               '<span class="label status-' + (t.status||'To.Do').replace(/ /g,'.') + '">' + esc(t.status||'To Do') + '</span>' +
               (t.overdue ? ' <span class="overdue">⚠️ OVERDUE</span>' : '') +
               (t.interDept ? ' <span style="background:#f3e5f5;color:#6c5ce7;padding:1px 8px;border-radius:6px;font-weight:600;font-size:10px;">↔ INTER-DEPT</span>' : '') +
@@ -342,7 +324,7 @@ function updateTaskAll() {
   callApi(params, function(err, data) {
     if (err || (data && data.error)) return popup('error', 'Failed', err || data.error);
     popup('success', 'Saved', t.id + ' updated');
-    closeSheet(); STATE.cached = {}; loadTasks(); loadDashboard();
+    closeSheet(); STATE.cached = {}; loadDashboard();
   });
 }
 
@@ -455,7 +437,7 @@ function submitTask() {
     btn.disabled = false; btn.textContent = 'Create Task';
     if (err || (data && data.error)) return popup('error', 'Failed', err || data.error);
     popup('success', 'Task Initiated', tn);
-    closeModal(); STATE.cached = {}; loadTasks(); loadDashboard();
+    closeModal(); STATE.cached = {}; loadDashboard();
   });
 }
 
