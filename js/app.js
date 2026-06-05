@@ -123,6 +123,7 @@ function loadDashboard() {
     }
     STATE.tasks = data.tasks || [];
     STATE.depts = data.depts || [];
+    STATE.staffList = data.staffList || [];
     if (data.userDept) STATE.dept = data.userDept;
     setCache('dash', data);
     renderDash(data, el, dueEl, overEl, compEl);
@@ -339,43 +340,35 @@ function showCreateTask() {
   document.getElementById('create-recurring').value = 'No';
   document.getElementById('create-recurring-type').value = '';
 
+  var staffList = STATE.staffList || [];
+  var currentEmail = STATE.email || '';
+  var currentName = currentEmail.split('@')[0];
+  var matchedStaff = staffList.find(function(s) { return s.email === currentEmail || s.aliasEmail === currentEmail; });
+  if (matchedStaff) currentName = matchedStaff.name;
+
   // Populate departments
   var ds = document.getElementById('create-dept');
   ds.innerHTML = '<option value="">Department (auto-detect)</option>';
-  (STATE.depts||[]).forEach(function(d) { ds.innerHTML += '<option value="' + esc(d) + '">' + esc(d) + '</option>'; });
+  var staffDepts = {};
+  staffList.forEach(function(s) { if (s.dept) staffDepts[s.dept] = true; });
+  var knownDepts = Object.keys(staffDepts).sort();
+  if (knownDepts.length) {
+    knownDepts.forEach(function(d) { ds.innerHTML += '<option value="' + esc(d) + '">' + esc(d) + '</option>'; });
+  }
 
-  // Fetch staff list and populate dropdowns
-  callApi({ action: 'getStaffList' }, function(err, data) {
-    if (err || !data || !data.staff) return;
-    STATE._staff = data.staff;
-    if (data.depts) STATE.depts = data.depts;
-
-    var ao = document.getElementById('create-assignor');
-    var ae = document.getElementById('create-assignee');
-    var currentEmail = STATE.email || '';
-    var currentName = currentEmail.split('@')[0];
-    // Try to find real name from staff directory
-    var matchedStaff = data.staff.find(function(s) { return s.email === currentEmail || s.aliasEmail === currentEmail; });
-    if (matchedStaff) currentName = matchedStaff.name;
-    ao.innerHTML = '<option value="">Assignor *</option>';
-    ae.innerHTML = '<option value="">Assignee *</option>';
-    data.staff.forEach(function(s) {
-      ao.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
-      ae.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
-    });
-    // Pre-select current user as assignor
-    for (var i = 0; i < ao.options.length; i++) {
-      if (ao.options[i].value === currentName) { ao.value = currentName; break; }
-    }
-    // Also update dept dropdown from staff data
-    var staffDepts = {};
-    data.staff.forEach(function(s) { if (s.dept) staffDepts[s.dept] = true; });
-    var knownDepts = Object.keys(staffDepts).sort();
-    if (knownDepts.length) {
-      ds.innerHTML = '<option value="">Department (auto-detect)</option>';
-      knownDepts.forEach(function(d) { ds.innerHTML += '<option value="' + esc(d) + '">' + esc(d) + '</option>'; });
-    }
+  // Populate assignor and assignee dropdowns (instant — from STATE.staffList)
+  var ao = document.getElementById('create-assignor');
+  var ae = document.getElementById('create-assignee');
+  ao.innerHTML = '<option value="">Assignor *</option>';
+  ae.innerHTML = '<option value="">Assignee *</option>';
+  staffList.forEach(function(s) {
+    ao.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
+    ae.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
   });
+  // Pre-select current user as assignor
+  for (var i = 0; i < ao.options.length; i++) {
+    if (ao.options[i].value === currentName) { ao.value = currentName; break; }
+  }
 
   document.getElementById('modal-overlay').classList.add('open');
   document.getElementById('create-modal').classList.add('open');
@@ -386,16 +379,8 @@ function lookupStaffDept() {
   var info = document.getElementById('create-staff-info');
   if (!name) { info.style.display = 'none'; return; }
 
-  // Look up from cached staff list
-  var match = STATE._staff ? STATE._staff.find(function(s) { return s.name === name; }) : null;
-  if (!match) {
-    // Fallback to API lookup
-    callApi({ action: 'lookupStaff', name: name }, function(err, data) {
-      if (err || !data || !data.staff || !data.staff.length) { info.style.display = 'none'; return; }
-      showStaffInfo(data.staff[0], info);
-    });
-    return;
-  }
+  var match = (STATE.staffList || []).find(function(s) { return s.name === name; });
+  if (!match) { info.style.display = 'none'; return; }
   showStaffInfo(match, info);
 }
 
