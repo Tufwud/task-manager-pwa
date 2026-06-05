@@ -344,11 +344,13 @@ function updateTaskAll() {
 }
 
 // ── Create Task ──
-function loadStaffList() {
+function loadStaffList(cb) {
+  if (STATE._staff && STATE._staff.length) { if (cb) cb(STATE._staff); return; }
   callApi({ action: 'getStaffList' }, function(err, data) {
-    if (err || !data || !data.staff) return;
+    if (err || !data || !data.staff) { if (cb) cb([]); return; }
     STATE._staff = data.staff;
     if (data.depts) STATE.depts = data.depts;
+    if (cb) cb(data.staff);
   });
 }
 
@@ -361,65 +363,42 @@ function showCreateTask() {
   document.getElementById('create-staff-info').innerHTML = '';
   document.getElementById('create-recurring').value = 'No';
   document.getElementById('create-recurring-type').value = '';
+  document.getElementById('create-assignor').innerHTML = '<option value="">Loading staff...</option>';
+  document.getElementById('create-assignee').innerHTML = '<option value="">Loading staff...</option>';
+  document.getElementById('create-dept').innerHTML = '<option value="">Loading...</option>';
 
-  var staffList = STATE._staff || STATE.staffList || [];
-  var ds = document.getElementById('create-dept');
-  var ao = document.getElementById('create-assignor');
-  var ae = document.getElementById('create-assignee');
-
-  if (!staffList.length) {
-    // Staff not loaded yet — show loading, fetch now
-    ao.innerHTML = '<option value="">Loading staff...</option>';
-    ae.innerHTML = '<option value="">Loading staff...</option>';
-    ds.innerHTML = '<option value="">Loading...</option>';
-    document.getElementById('modal-overlay').classList.add('open');
-    document.getElementById('create-modal').classList.add('open');
-    loadStaffList();
-    // Retry after 2 seconds
-    setTimeout(function() {
-      var retry = STATE._staff || STATE.staffList || [];
-      if (retry.length) {
-        populateCreateForm(retry);
-      } else {
-        popup('error', 'Failed', 'Could not load staff list. Check your Staff Directory sheet.');
-      }
-    }, 2000);
-    return;
-  }
-
-  populateCreateForm(staffList);
   document.getElementById('modal-overlay').classList.add('open');
   document.getElementById('create-modal').classList.add('open');
-}
 
-function populateCreateForm(staffList) {
-  var currentEmail = STATE.email || '';
-  var currentName = currentEmail.split('@')[0];
-  var matchedStaff = staffList.find(function(s) { return s.email === currentEmail || s.aliasEmail === currentEmail; });
-  if (matchedStaff) currentName = matchedStaff.name;
+  loadStaffList(function(staff) {
+    if (!staff || !staff.length) {
+      popup('error', 'Failed', 'Staff list empty — check Staff Directory sheet');
+      return;
+    }
+    // Pre-fill assignor by looking up current user email
+    var currentEmail = STATE.email || '';
+    var currentName = currentEmail.split('@')[0];
+    var me = staff.find(function(s) { return s.email === currentEmail || s.aliasEmail === currentEmail; });
+    if (me) currentName = me.name;
 
-  var ds = document.getElementById('create-dept');
-  var ao = document.getElementById('create-assignor');
-  var ae = document.getElementById('create-assignee');
+    var ds = document.getElementById('create-dept');
+    ds.innerHTML = '<option value="">Department (auto-detect)</option>';
+    var depts = {};
+    staff.forEach(function(s) { if (s.dept) depts[s.dept] = true; });
+    Object.keys(depts).sort().forEach(function(d) { ds.innerHTML += '<option value="' + esc(d) + '">' + esc(d) + '</option>'; });
 
-  // Populate departments
-  ds.innerHTML = '<option value="">Department (auto-detect)</option>';
-  var staffDepts = {};
-  staffList.forEach(function(s) { if (s.dept) staffDepts[s.dept] = true; });
-  var knownDepts = Object.keys(staffDepts).sort();
-  knownDepts.forEach(function(d) { ds.innerHTML += '<option value="' + esc(d) + '">' + esc(d) + '</option>'; });
-
-  // Populate assignor/assignee
-  ao.innerHTML = '<option value="">Assignor *</option>';
-  ae.innerHTML = '<option value="">Assignee *</option>';
-  staffList.forEach(function(s) {
-    ao.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
-    ae.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
+    var ao = document.getElementById('create-assignor');
+    var ae = document.getElementById('create-assignee');
+    ao.innerHTML = '<option value="">Assignor *</option>';
+    ae.innerHTML = '<option value="">Assignee *</option>';
+    staff.forEach(function(s) {
+      ao.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
+      ae.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
+    });
+    for (var i = 0; i < ao.options.length; i++) {
+      if (ao.options[i].value === currentName) { ao.value = currentName; break; }
+    }
   });
-  // Pre-select current user as assignor
-  for (var i = 0; i < ao.options.length; i++) {
-    if (ao.options[i].value === currentName) { ao.value = currentName; break; }
-  }
 }
 
 function lookupStaffDept() {
