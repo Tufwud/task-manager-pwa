@@ -274,13 +274,15 @@ function openTask(id) {
   STATE.selectedTask = t;
   document.getElementById('sheet-title').textContent = t.task || 'Task';
   document.getElementById('sheet-meta').textContent = 'ID: ' + t.id + ' • ' + (t.dept||'');
-  document.getElementById('sheet-status').value = t.status || 'To Do';
 
+  // Detail grid
   var items = [
     ['Task ID', t.id], ['Priority', t.priority], ['Status', t.status],
     ['Assignee', t.assignee], ['Department', t.dept], ['Assignor', t.assignor],
+    ['Email', t.email], ['Mobile', t.mobile],
     ['Created', t.createdDate ? fmtDate(t.createdDate) : ''],
-    ['Due', t.dueDate ? fmtDate(t.dueDate) : ''], ['Completed', t.completedDate ? fmtDate(t.completedDate) : ''],
+    ['Due', t.dueDate ? fmtDate(t.dueDate) : ''],
+    ['Completed', t.completedDate ? fmtDate(t.completedDate) : ''],
     ['Recurring', t.recurring || 'No'],
     ['Inter-Dept', t.interDept ? '↔ Yes' : 'No']
   ];
@@ -288,6 +290,18 @@ function openTask(id) {
     if (!i[1]) return '';
     return '<div class="detail-item"><div class="dl">' + i[0] + '</div><div class="dv">' + esc(String(i[1])) + '</div></div>';
   }).join('');
+
+  // Populate editable fields
+  document.getElementById('sheet-status').value = t.status || 'To Do';
+  document.getElementById('sheet-priority').value = t.priority || 'Medium';
+  document.getElementById('sheet-due-date').value = t.dueDate || '';
+  document.getElementById('sheet-reschedule-date').value = t.rescheduleDate || t.dueDate || '';
+  document.getElementById('sheet-reschedule-reason').value = t.rescheduleReason || '';
+  document.getElementById('sheet-recurring').value = t.recurring || 'No';
+  document.getElementById('sheet-recurring-type').value = t.recurringType || '';
+  document.getElementById('sheet-remarks').value = t.remarks || '';
+  document.getElementById('sheet-description').value = t.description || '';
+
   document.getElementById('sheet-overlay').classList.add('open');
   document.getElementById('task-sheet').classList.add('open');
 }
@@ -297,13 +311,37 @@ function closeSheet() {
   document.getElementById('task-sheet').classList.remove('open');
 }
 
-function updateTaskStatus() {
+function updateTaskAll() {
   var t = STATE.selectedTask;
   if (!t) return;
-  var ns = document.getElementById('sheet-status').value;
-  callApi({ action: 'updateTask', taskId: t.id, status: ns }, function(err, data) {
+  var params = { action: 'updateTask', taskId: t.id };
+  var status = document.getElementById('sheet-status').value;
+  var priority = document.getElementById('sheet-priority').value;
+  var dueDate = document.getElementById('sheet-due-date').value;
+  var rescheduleDate = document.getElementById('sheet-reschedule-date').value;
+  var rescheduleReason = document.getElementById('sheet-reschedule-reason').value.trim();
+  var recurring = document.getElementById('sheet-recurring').value;
+  var recurringType = document.getElementById('sheet-recurring-type').value;
+  var remarks = document.getElementById('sheet-remarks').value.trim();
+  var description = document.getElementById('sheet-description').value.trim();
+
+  // Only send changed values
+  if (status !== t.status) params.status = status;
+  if (priority !== t.priority) params.priority = priority;
+  if (dueDate !== t.dueDate) params.dueDate = dueDate;
+  if (rescheduleDate && rescheduleDate !== t.dueDate) params.rescheduleDate = rescheduleDate;
+  if (rescheduleReason) params.rescheduleReason = rescheduleReason;
+  if (recurring !== (t.recurring || 'No')) params.recurring = recurring;
+  if (recurringType !== (t.recurringType || '')) params.recurringType = recurringType;
+  if (remarks !== (t.remarks || '')) params.remarks = remarks;
+  if (description !== (t.description || '')) params.description = description;
+
+  // Always send at least status if nothing else changed
+  if (Object.keys(params).length < 2) params.status = status;
+
+  callApi(params, function(err, data) {
     if (err || (data && data.error)) return popup('error', 'Failed', err || data.error);
-    popup('success', 'Updated', t.id + ' → ' + ns);
+    popup('success', 'Saved', t.id + ' updated');
     closeSheet(); STATE.cached = {}; loadTasks(); loadDashboard();
   });
 }
@@ -374,7 +412,10 @@ function submitTask() {
   var dp = document.getElementById('create-dept').value;
   if (!tn || !as) return popup('error', 'Required', 'Task name and assignee required');
   var btn = document.getElementById('create-submit'); btn.disabled = true; btn.textContent = 'Creating...';
-  var p = { action: 'createTask', task: tn, assignee: as, priority: pr, description: ds, assignor: ao };
+  var rc = document.getElementById('create-recurring').value;
+  var rt = document.getElementById('create-recurring-type').value;
+  var p = { action: 'createTask', task: tn, assignee: as, priority: pr, description: ds, assignor: ao, recurring: rc };
+  if (rt) p.recurringType = rt;
   if (dd) p.dueDate = dd; if (dp) p.dept = dp;
   callApi(p, function(err, data) {
     btn.disabled = false; btn.textContent = 'Create Task';
