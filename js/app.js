@@ -378,8 +378,8 @@ function showCreateTask() {
     ao.innerHTML = '<option value="">Assignor *</option>';
     ae.innerHTML = '<option value="">Assignee *</option>';
     data.staff.forEach(function(s) {
-      ao.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + ' (' + esc(s.dept) + ')</option>';
-      ae.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + ' (' + esc(s.dept) + ')</option>';
+      ao.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
+      ae.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
     });
     // Pre-select current user as assignor
     for (var i = 0; i < ao.options.length; i++) {
