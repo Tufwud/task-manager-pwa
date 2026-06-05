@@ -1,6 +1,18 @@
 /* ═══════════════════════════════════════════
-   TaskFlow PWA v3.0
+   TaskFlow PWA v3.1
    ═══════════════════════════════════════════ */
+
+// ── Emergency reset: ?reset in URL kills all caches & Service Workers ──
+(function() {
+  if (location.search.indexOf('reset') !== -1) {
+    if ('caches' in window) { caches.keys().then(function(k) { k.forEach(function(c) { caches.delete(c); }); }); }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(r) { r.forEach(function(s) { s.unregister(); }); });
+    }
+    localStorage.clear();
+    console.log('RESET: caches + SW + localStorage cleared');
+  }
+})();
 
 var STATE = {
   url: '', email: '', token: '', dept: '', depts: [],
