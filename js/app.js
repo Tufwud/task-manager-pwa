@@ -107,41 +107,32 @@ function switchTab(name) {
   document.getElementById('tab-' + name).classList.add('active');
   document.querySelector('.tab-btn[data-tab="' + name + '"]').classList.add('active');
   if (name === 'dashboard') loadDashboard();
-  else if (name === 'tasks') renderTasks();
+  else if (name === 'tasks') loadTasks();
   else if (name === 'depts') loadDepts();
   else if (name === 'calendar') renderCalendar();
   else if (name === 'reports') renderReport(STATE.activeReport);
 }
 
-// ── Dashboard (single API call — also loads tasks + depts) ──
+// ── Dashboard (fast — stats + today/overdue only) ──
 function loadDashboard() {
   var el = document.getElementById('dash-stats');
-  var taskEl = document.getElementById('task-list');
   el.innerHTML = '<div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div>';
-  if (taskEl) taskEl.innerHTML = '<div class="loading-center"><span class="spinner"></span></div>';
-  var cached = getCache('dash');
   var dueEl = document.getElementById('dash-due-today');
   var overEl = document.getElementById('dash-overdue');
   var compEl = document.getElementById('dash-completed');
-  if (cached) {
-    STATE.tasks = cached.tasks || [];
-    STATE.depts = cached.depts || [];
-    renderDash(cached, el, dueEl, overEl, compEl);
-  }
+  var cached = getCache('dash');
+  if (cached) renderDash(cached, el, dueEl, overEl, compEl);
 
   callApi({ action: 'getDashboard' }, function(err, data) {
     if (err || !data || data.error) {
       if (!cached) el.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><h3>Could not load</h3></div>';
       return;
     }
-    STATE.tasks = data.tasks || [];
-    STATE.depts = data.depts || [];
+    if (data.depts) STATE.depts = data.depts;
     if (data.userDept) STATE.dept = data.userDept;
+    document.getElementById('settings-dept').textContent = STATE.dept || 'All';
     setCache('dash', data);
     renderDash(data, el, dueEl, overEl, compEl);
-    document.getElementById('settings-dept').textContent = STATE.dept || 'All';
-    renderTasks();
-    // Pre-fetch staff list silently for create form
     if (!STATE._staff) loadStaffList();
   });
 }
@@ -166,6 +157,33 @@ function taskListItems(arr) {
       '<span class="item-name">' + esc(t.task) + '</span>' +
       '<span class="item-status status-' + (t.status||'').replace(/ /g,'.') + '">' + esc(t.status) + '</span></div>';
   }).join('');
+}
+
+// ── Tasks (loaded on-demand when tab is opened) ──
+function loadTasks() {
+  var el = document.getElementById('task-list');
+  el.innerHTML = '<div class="loading-center"><span class="spinner"></span></div>';
+  var cached = getCache('tasks');
+  if (cached) { STATE.tasks = cached; renderTasks(); }
+  loadTasksDirect(function() {
+    if (!STATE.tasks || !STATE.tasks.length) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><h3>No tasks found</h3></div>';
+      return;
+    }
+    renderTasks();
+    populateFilterStaff();
+  });
+}
+
+function loadTasksDirect(cb) {
+  if (STATE.tasks && STATE.tasks.length) { if (cb) cb(); return; }
+  callApi({ action: 'getTasks' }, function(err, data) {
+    if (err || !data || data.error) { if (cb) cb(); return; }
+    STATE.tasks = data.tasks || [];
+    if (data.depts) STATE.depts = data.depts;
+    setCache('tasks', STATE.tasks);
+    if (cb) cb();
+  });
 }
 
 // ── Tasks (uses STATE.tasks from dashboard, no API call) ──
@@ -227,9 +245,14 @@ function loadDepts() {
   var el = document.getElementById('dept-list');
   var showDept = STATE.dept || null;
   if (!STATE.tasks || !STATE.tasks.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><h3>No tasks yet</h3></div>';
+    el.innerHTML = '<div class="loading-center"><span class="spinner"></span></div>';
+    loadTasksDirect(function() { renderDeptView(el, showDept); });
     return;
   }
+  renderDeptView(el, showDept);
+}
+
+function renderDeptView(el, showDept) {
   var grouped = {};
   STATE.tasks.forEach(function(t) {
     var d = t.dept || 'Other';
