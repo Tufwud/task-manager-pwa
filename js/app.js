@@ -193,6 +193,7 @@ function renderTasks() {
       '<div class="task-bottom">' +
         '<span class="label status-' + (t.status||'To.Do').replace(/ /g,'.') + '">' + esc(t.status||'To Do') + '</span>' +
         (t.overdue ? ' <span class="overdue">⚠️ OVERDUE</span>' : '') +
+        (t.interDept ? ' <span style="background:#f3e5f5;color:#6c5ce7;padding:1px 8px;border-radius:6px;font-weight:600;font-size:10px;">↔ INTER-DEPT</span>' : '') +
         ' <span class="assignee">' + esc(t.assignee||'') + '</span>' +
         (t.dept ? ' <span>📁 ' + esc(t.dept) + '</span>' : '') +
         (t.dueDate ? ' <span>📅 ' + fmtDate(t.dueDate) + '</span>' : '') +
@@ -257,6 +258,7 @@ function renderDepts(depts, el, showDept) {
             '<div class="task-bottom">' +
               '<span class="label status-' + (t.status||'To.Do').replace(/ /g,'.') + '">' + esc(t.status||'To Do') + '</span>' +
               (t.overdue ? ' <span class="overdue">⚠️ OVERDUE</span>' : '') +
+              (t.interDept ? ' <span style="background:#f3e5f5;color:#6c5ce7;padding:1px 8px;border-radius:6px;font-weight:600;font-size:10px;">↔ INTER-DEPT</span>' : '') +
               ' <span>' + esc(t.assignee||'') + '</span>' +
               (t.dueDate ? ' <span>📅 ' + fmtDate(t.dueDate) + '</span>' : '') +
             '</div></div>';
@@ -279,7 +281,8 @@ function openTask(id) {
     ['Assignee', t.assignee], ['Department', t.dept], ['Assignor', t.assignor],
     ['Created', t.createdDate ? fmtDate(t.createdDate) : ''],
     ['Due', t.dueDate ? fmtDate(t.dueDate) : ''], ['Completed', t.completedDate ? fmtDate(t.completedDate) : ''],
-    ['Recurring', t.recurring || 'No']
+    ['Recurring', t.recurring || 'No'],
+    ['Inter-Dept', t.interDept ? '↔ Yes' : 'No']
   ];
   document.getElementById('sheet-details').innerHTML = items.map(function(i) {
     if (!i[1]) return '';
@@ -308,13 +311,16 @@ function updateTaskStatus() {
 // ── Create Task ──
 function showCreateTask() {
   document.getElementById('create-task-name').value = '';
+  document.getElementById('create-assignor').value = STATE.user || STATE.email.split('@')[0];
   document.getElementById('create-priority').value = 'Medium';
   document.getElementById('create-assignee').value = '';
   document.getElementById('create-due-date').value = '';
   document.getElementById('create-description').value = '';
+  document.getElementById('create-staff-info').style.display = 'none';
+  document.getElementById('create-staff-info').innerHTML = '';
 
   var ds = document.getElementById('create-dept');
-  ds.innerHTML = '<option value="">Department</option>';
+  ds.innerHTML = '<option value="">Department (auto-detect)</option>';
   (STATE.depts||[]).forEach(function(d) { ds.innerHTML += '<option value="' + esc(d) + '">' + esc(d) + '</option>'; });
 
   var sl = document.getElementById('staff-list');
@@ -326,6 +332,33 @@ function showCreateTask() {
   document.getElementById('create-modal').classList.add('open');
 }
 
+function lookupStaffDept() {
+  var name = document.getElementById('create-assignee').value.trim();
+  var info = document.getElementById('create-staff-info');
+  if (!name || name.length < 2) { info.style.display = 'none'; return; }
+
+  callApi({ action: 'lookupStaff', name: name }, function(err, data) {
+    if (err || !data || !data.staff || !data.staff.length) {
+      info.style.display = 'none';
+      return;
+    }
+    var s = data.staff[0];
+    info.style.display = 'block';
+    info.innerHTML = '📁 ' + esc(s.dept) + ' • ' + esc(s.email) + (s.mobile ? ' • 📞 ' + esc(s.mobile) : '');
+
+    var ds = document.getElementById('create-dept');
+    if (s.dept) {
+      for (var i = 0; i < ds.options.length; i++) {
+        if (ds.options[i].value === s.dept) { ds.value = s.dept; break; }
+      }
+    }
+    // Show inter-dept warning if different
+    if (STATE.dept && s.dept && s.dept !== STATE.dept) {
+      info.innerHTML += '<br><span style="color:var(--danger);font-weight:600;">↔ Inter-Dept: ' + esc(s.dept) + ' ≠ your department ' + esc(STATE.dept) + '</span>';
+    }
+  });
+}
+
 function closeModal() {
   document.getElementById('modal-overlay').classList.remove('open');
   document.getElementById('create-modal').classList.remove('open');
@@ -333,6 +366,7 @@ function closeModal() {
 
 function submitTask() {
   var tn = document.getElementById('create-task-name').value.trim();
+  var ao = document.getElementById('create-assignor').value.trim();
   var as = document.getElementById('create-assignee').value.trim();
   var pr = document.getElementById('create-priority').value;
   var dd = document.getElementById('create-due-date').value;
@@ -340,7 +374,7 @@ function submitTask() {
   var dp = document.getElementById('create-dept').value;
   if (!tn || !as) return popup('error', 'Required', 'Task name and assignee required');
   var btn = document.getElementById('create-submit'); btn.disabled = true; btn.textContent = 'Creating...';
-  var p = { action: 'createTask', task: tn, assignee: as, priority: pr, description: ds };
+  var p = { action: 'createTask', task: tn, assignee: as, priority: pr, description: ds, assignor: ao };
   if (dd) p.dueDate = dd; if (dp) p.dept = dp;
   callApi(p, function(err, data) {
     btn.disabled = false; btn.textContent = 'Create Task';
