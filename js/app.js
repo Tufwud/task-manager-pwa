@@ -7,6 +7,7 @@ var STATE = {
   tasks: [], cached: {}, calMonth: null, calYear: null,
   selectedTask: null, activeReport: 'mgmt'
 };
+var APP_VERSION = '3.1.0';
 
 // ── API (GET + JSONP — zero CORS issues) ──
 function callApi(params, cb) {
@@ -84,7 +85,7 @@ function init() {
   document.getElementById('settings-dept').textContent = STATE.dept || 'All';
   var d = new Date();
   STATE.calMonth = d.getMonth(); STATE.calYear = d.getFullYear();
-  loadDashboard();
+  initSettings(); loadDashboard();
 }
 
 // ── Tab Switching ──
@@ -658,7 +659,12 @@ function exportCSV(type) {
   popup('success','Exported',type+' report downloaded');
 }
 
-// ── Version ──
+// ── Version & Cache ──
+function initSettings() {
+  document.getElementById('settings-version').textContent = 'v' + APP_VERSION;
+  document.getElementById('settings-commit').textContent = '72d76c1';
+}
+
 function refreshVersion() {
   document.getElementById('settings-refreshed').textContent = new Date().toLocaleTimeString();
   popup('info','Refreshed','Checking for update...');
@@ -667,11 +673,19 @@ function refreshVersion() {
   }
 }
 
-function clearCache() {
+function clearAllCache() {
   STATE.cached = {};
-  localStorage.removeItem('tf_cache');
-  popup('info','Cache Cleared','Local cache cleared');
-  setTimeout(function(){location.reload()},500);
+  localStorage.clear();
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(regs) {
+      regs.forEach(function(r) { r.unregister(); });
+    });
+    caches.keys().then(function(keys) {
+      keys.forEach(function(k) { caches.delete(k); });
+    });
+  }
+  popup('info','Cleared','Cache cleared, reloading...');
+  setTimeout(function(){location.reload()},800);
 }
 
 // ── Cache ──

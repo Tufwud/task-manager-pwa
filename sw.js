@@ -1,4 +1,4 @@
-var CACHE = 'task-manager-v1';
+var CACHE = 'task-manager-v2';
 var STATIC = [
   '/task-manager-pwa/',
   '/task-manager-pwa/index.html',
