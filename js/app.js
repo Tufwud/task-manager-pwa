@@ -349,52 +349,86 @@ function updateTaskAll() {
 // ── Create Task ──
 function showCreateTask() {
   document.getElementById('create-task-name').value = '';
-  document.getElementById('create-assignor').value = STATE.user || STATE.email.split('@')[0];
   document.getElementById('create-priority').value = 'Medium';
-  document.getElementById('create-assignee').value = '';
   document.getElementById('create-due-date').value = '';
   document.getElementById('create-description').value = '';
   document.getElementById('create-staff-info').style.display = 'none';
   document.getElementById('create-staff-info').innerHTML = '';
+  document.getElementById('create-recurring').value = 'No';
+  document.getElementById('create-recurring-type').value = '';
 
+  // Populate departments
   var ds = document.getElementById('create-dept');
   ds.innerHTML = '<option value="">Department (auto-detect)</option>';
   (STATE.depts||[]).forEach(function(d) { ds.innerHTML += '<option value="' + esc(d) + '">' + esc(d) + '</option>'; });
 
-  var sl = document.getElementById('staff-list');
-  var ss = new Set();
-  STATE.tasks.forEach(function(t) { if (t.assignee) ss.add(t.assignee); });
-  sl.innerHTML = Array.from(ss).sort().map(function(n) { return '<option value="' + esc(n) + '">'; }).join('');
+  // Fetch staff list and populate dropdowns
+  callApi({ action: 'getStaffList' }, function(err, data) {
+    if (err || !data || !data.staff) return;
+    STATE._staff = data.staff;
+    if (data.depts) STATE.depts = data.depts;
+
+    var ao = document.getElementById('create-assignor');
+    var ae = document.getElementById('create-assignee');
+    var currentEmail = STATE.email || '';
+    var currentName = currentEmail.split('@')[0];
+    // Try to find real name from staff directory
+    var matchedStaff = data.staff.find(function(s) { return s.email === currentEmail || s.aliasEmail === currentEmail; });
+    if (matchedStaff) currentName = matchedStaff.name;
+    ao.innerHTML = '<option value="">Assignor *</option>';
+    ae.innerHTML = '<option value="">Assignee *</option>';
+    data.staff.forEach(function(s) {
+      ao.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + ' (' + esc(s.dept) + ')</option>';
+      ae.innerHTML += '<option value="' + esc(s.name) + '">' + esc(s.name) + ' (' + esc(s.dept) + ')</option>';
+    });
+    // Pre-select current user as assignor
+    for (var i = 0; i < ao.options.length; i++) {
+      if (ao.options[i].value === currentName) { ao.value = currentName; break; }
+    }
+    // Also update dept dropdown from staff data
+    var staffDepts = {};
+    data.staff.forEach(function(s) { if (s.dept) staffDepts[s.dept] = true; });
+    var knownDepts = Object.keys(staffDepts).sort();
+    if (knownDepts.length) {
+      ds.innerHTML = '<option value="">Department (auto-detect)</option>';
+      knownDepts.forEach(function(d) { ds.innerHTML += '<option value="' + esc(d) + '">' + esc(d) + '</option>'; });
+    }
+  });
 
   document.getElementById('modal-overlay').classList.add('open');
   document.getElementById('create-modal').classList.add('open');
 }
 
 function lookupStaffDept() {
-  var name = document.getElementById('create-assignee').value.trim();
+  var name = document.getElementById('create-assignee').value;
   var info = document.getElementById('create-staff-info');
-  if (!name || name.length < 2) { info.style.display = 'none'; return; }
+  if (!name) { info.style.display = 'none'; return; }
 
-  callApi({ action: 'lookupStaff', name: name }, function(err, data) {
-    if (err || !data || !data.staff || !data.staff.length) {
-      info.style.display = 'none';
-      return;
-    }
-    var s = data.staff[0];
-    info.style.display = 'block';
-    info.innerHTML = '📁 ' + esc(s.dept) + ' • ' + esc(s.email) + (s.mobile ? ' • 📞 ' + esc(s.mobile) : '');
+  // Look up from cached staff list
+  var match = STATE._staff ? STATE._staff.find(function(s) { return s.name === name; }) : null;
+  if (!match) {
+    // Fallback to API lookup
+    callApi({ action: 'lookupStaff', name: name }, function(err, data) {
+      if (err || !data || !data.staff || !data.staff.length) { info.style.display = 'none'; return; }
+      showStaffInfo(data.staff[0], info);
+    });
+    return;
+  }
+  showStaffInfo(match, info);
+}
 
-    var ds = document.getElementById('create-dept');
-    if (s.dept) {
-      for (var i = 0; i < ds.options.length; i++) {
-        if (ds.options[i].value === s.dept) { ds.value = s.dept; break; }
-      }
+function showStaffInfo(s, info) {
+  info.style.display = 'block';
+  info.innerHTML = '📁 ' + esc(s.dept) + ' • ' + esc(s.email) + (s.mobile ? ' • 📞 ' + esc(s.mobile) : '');
+  var ds = document.getElementById('create-dept');
+  if (s.dept) {
+    for (var i = 0; i < ds.options.length; i++) {
+      if (ds.options[i].value === s.dept) { ds.value = s.dept; break; }
     }
-    // Show inter-dept warning if different
-    if (STATE.dept && s.dept && s.dept !== STATE.dept) {
-      info.innerHTML += '<br><span style="color:var(--danger);font-weight:600;">↔ Inter-Dept: ' + esc(s.dept) + ' ≠ your department ' + esc(STATE.dept) + '</span>';
-    }
-  });
+  }
+  if (STATE.dept && s.dept && s.dept !== STATE.dept) {
+    info.innerHTML += '<br><span style="color:var(--danger);font-weight:600;">↔ Inter-Dept: ' + esc(s.dept) + ' ≠ ' + esc(STATE.dept) + '</span>';
+  }
 }
 
 function closeModal() {
@@ -404,13 +438,13 @@ function closeModal() {
 
 function submitTask() {
   var tn = document.getElementById('create-task-name').value.trim();
-  var ao = document.getElementById('create-assignor').value.trim();
-  var as = document.getElementById('create-assignee').value.trim();
+  var ao = document.getElementById('create-assignor').value;
+  var as = document.getElementById('create-assignee').value;
   var pr = document.getElementById('create-priority').value;
   var dd = document.getElementById('create-due-date').value;
   var ds = document.getElementById('create-description').value.trim();
   var dp = document.getElementById('create-dept').value;
-  if (!tn || !as) return popup('error', 'Required', 'Task name and assignee required');
+  if (!tn || !as || !ao) return popup('error', 'Required', 'Task name, assignor and assignee required');
   var btn = document.getElementById('create-submit'); btn.disabled = true; btn.textContent = 'Creating...';
   var rc = document.getElementById('create-recurring').value;
   var rt = document.getElementById('create-recurring-type').value;

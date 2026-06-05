@@ -131,13 +131,12 @@
     <div class="modal-header"><h3>Create Task</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div class="create-form">
       <input type="text" id="create-task-name" placeholder="Task name *">
-      <input type="text" id="create-assignor" placeholder="Assignor (your name)">
+      <select id="create-assignor"><option value="">Assignor *</option></select>
       <div class="form-row">
         <select id="create-priority"><option value="Medium">Medium</option><option value="High">High</option><option value="Low">Low</option><option value="Urgent">Urgent</option></select>
         <select id="create-dept"><option value="">Department (auto-detect)</option></select>
       </div>
-      <input type="text" id="create-assignee" placeholder="Assignee name *" list="staff-list" oninput="lookupStaffDept()">
-      <datalist id="staff-list"></datalist>
+      <select id="create-assignee" onchange="lookupStaffDept()"><option value="">Assignee *</option></select>
       <div id="create-staff-info" style="font-size:12px;color:var(--text-secondary);padding:4px 0;display:none;"></div>
       <input type="date" id="create-due-date">
       <div class="form-row">
