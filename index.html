@@ -150,7 +150,7 @@
       <div id="create-staff-info" style="font-size:12px;color:var(--text-secondary);padding:4px 0;display:none;"></div>
       <input type="date" id="create-due-date">
       <div class="form-row">
-        <select id="create-recurring"><option value="No">Recurring: No</option><option value="Yes">Recurring: Yes</option></select>
+        <select id="create-recurring"><option value="No">No</option><option value="Yes">Yes</option></select>
         <select id="create-recurring-type"><option value="">Recurring Type</option><option value="Daily">Daily</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option><option value="Quarterly">Quarterly</option></select>
       </div>
       <textarea id="create-description" placeholder="Description (optional)" rows="3"></textarea>
@@ -164,51 +164,55 @@
     <div class="handle"></div>
     <h2 id="sheet-title">Task</h2>
     <div class="sheet-meta" id="sheet-meta">-</div>
-    <div class="detail-grid" id="sheet-details"></div>
 
-    <h4 style="font-size:13px;font-weight:700;margin:12px 0 8px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;">Update Fields</h4>
-
-    <label style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;">Status</label>
-    <select class="status-select" id="sheet-status">
-      <option value="To Do">To Do</option>
-      <option value="In Progress">In Progress</option>
-      <option value="Completed">Completed</option>
-      <option value="Cancelled">Cancelled</option>
-    </select>
-
-    <label style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-top:8px;display:block;">Priority</label>
-    <select class="status-select" id="sheet-priority">
-      <option value="Medium">Medium</option>
-      <option value="High">High</option>
-      <option value="Low">Low</option>
-      <option value="Urgent">Urgent</option>
-    </select>
-
-    <div style="display:flex;gap:8px;margin:8px 0;">
+    <div style="display:flex;gap:8px;margin:12px 0 8px;">
       <div style="flex:1;">
-        <label style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Due Date</label>
-        <input type="date" id="sheet-due-date" style="width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);">
+        <label style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Status</label>
+        <select id="sheet-status" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);">
+          <option value="To Do">To Do</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Completed">Completed</option>
+          <option value="Cancelled">Cancelled</option>
+        </select>
       </div>
       <div style="flex:1;">
-        <label style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Reschedule Date</label>
-        <input type="date" id="sheet-reschedule-date" style="width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);">
+        <label style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Priority</label>
+        <select id="sheet-priority" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);">
+          <option value="Medium">Medium</option>
+          <option value="High">High</option>
+          <option value="Low">Low</option>
+          <option value="Urgent">Urgent</option>
+        </select>
       </div>
     </div>
 
-    <label style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Reschedule Reason</label>
-    <input type="text" id="sheet-reschedule-reason" placeholder="Why rescheduled?" style="width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);margin-bottom:8px;">
+    <div class="detail-grid" id="sheet-details"></div>
 
-    <div style="display:flex;gap:8px;margin:8px 0;">
+    <div style="display:flex;gap:8px;margin:6px 0;">
       <div style="flex:1;">
-        <label style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Recurring</label>
-        <select id="sheet-recurring" style="width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);-webkit-appearance:none;">
+        <label style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Due Date</label>
+        <input type="date" id="sheet-due-date" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);">
+      </div>
+      <div style="flex:1;">
+        <label style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Reschedule Date</label>
+        <input type="date" id="sheet-reschedule-date" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);">
+      </div>
+    </div>
+
+    <label style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Reschedule Reason</label>
+    <input type="text" id="sheet-reschedule-reason" placeholder="Why rescheduled?" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);margin-bottom:6px;">
+
+    <div style="display:flex;gap:8px;margin:6px 0;">
+      <div style="flex:1;">
+        <label style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Recurring</label>
+        <select id="sheet-recurring" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);">
           <option value="No">No</option>
           <option value="Yes">Yes</option>
         </select>
       </div>
       <div style="flex:1;">
-        <label style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Recurring Type</label>
-        <select id="sheet-recurring-type" style="width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);-webkit-appearance:none;">
+        <label style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Recurring Type</label>
+        <select id="sheet-recurring-type" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);">
           <option value="">-</option>
           <option value="Daily">Daily</option>
           <option value="Weekly">Weekly</option>
@@ -218,11 +222,11 @@
       </div>
     </div>
 
-    <label style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Remarks</label>
-    <textarea id="sheet-remarks" placeholder="Add remarks..." rows="2" style="width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);font-family:inherit;resize:vertical;margin-bottom:8px;"></textarea>
+    <label style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Remarks</label>
+    <textarea id="sheet-remarks" placeholder="Add remarks..." rows="2" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);font-family:inherit;margin-bottom:6px;"></textarea>
 
-    <label style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Description</label>
-    <textarea id="sheet-description" placeholder="Task description..." rows="2" style="width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);font-family:inherit;resize:vertical;margin-bottom:12px;"></textarea>
+    <label style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:block;">Description</label>
+    <textarea id="sheet-description" placeholder="Task description..." rows="2" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;background:var(--bg-card);font-family:inherit;margin-bottom:12px;"></textarea>
 
     <div class="sheet-actions">
       <button class="btn-primary" onclick="updateTaskAll()">💾 Save Changes</button>
