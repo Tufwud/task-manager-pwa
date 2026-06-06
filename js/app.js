@@ -216,7 +216,7 @@ function renderTasks() {
         '<span class="label status-' + (t.status||'To.Do').replace(/ /g,'.') + '">' + esc(t.status||'To Do') + '</span>' +
         (t.overdue ? ' <span class="overdue">⚠️ OVERDUE</span>' : '') +
         (t.interDept ? ' <span style="background:#f3e5f5;color:#6c5ce7;padding:1px 8px;border-radius:6px;font-weight:600;font-size:10px;">↔ INTER-DEPT</span>' : '') +
-        ' <span class="assignee">' + esc(t.assignee||'') + '</span>' +
+        ' <span>' + esc(t.assignor||'') + ' → ' + esc(t.assignee||'') + '</span>' +
         (t.dept ? ' <span>📁 ' + esc(t.dept) + '</span>' : '') +
         (t.dueDate ? ' <span>📅 ' + fmtDate(t.dueDate) + '</span>' : '') +
       '</div></div>';
@@ -279,7 +279,7 @@ function renderDeptView(el, showDept) {
               '<span class="label status-' + (t.status||'To.Do').replace(/ /g,'.') + '">' + esc(t.status||'To Do') + '</span>' +
               (t.overdue ? ' <span class="overdue">⚠️ OVERDUE</span>' : '') +
               (t.interDept ? ' <span style="background:#f3e5f5;color:#6c5ce7;padding:1px 8px;border-radius:6px;font-weight:600;font-size:10px;">↔ INTER-DEPT</span>' : '') +
-              ' <span>' + esc(t.assignee||'') + '</span>' +
+              ' <span>' + esc(t.assignor||'') + ' → ' + esc(t.assignee||'') + '</span>' +
               (t.dueDate ? ' <span>📅 ' + fmtDate(t.dueDate) + '</span>' : '') +
             '</div></div>';
         }).join('') +
