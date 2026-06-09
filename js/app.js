@@ -465,7 +465,8 @@ function submitTask() {
   var btn = document.getElementById('create-submit'); btn.disabled = true; btn.textContent = 'Creating...';
   var rc = document.getElementById('create-recurring').value;
   var rt = document.getElementById('create-recurring-type').value;
-  var p = { action: 'createTask', task: tn, assignee: as, priority: pr, description: ds, assignor: ao, recurring: rc };
+  var st = document.getElementById('create-status').value;
+  var p = { action: 'createTask', task: tn, assignee: as, priority: pr, status: st, description: ds, assignor: ao, recurring: rc };
   if (rt) p.recurringType = rt;
   if (dd) p.dueDate = dd; if (dp) p.dept = dp;
   callApi(p, function(err, data) {
