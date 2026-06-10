@@ -17,7 +17,7 @@
 var STATE = {
   url: '', email: '', token: '', dept: '', depts: [],
   tasks: [], cached: {}, calMonth: null, calYear: null,
-  selectedTask: null, activeReport: 'mgmt'
+  selectedTask: null, activeReport: 'mgmt', activeDept: ''
 };
 var APP_VERSION = '3.1.0';
 
@@ -106,11 +106,34 @@ function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach(function(el) { el.classList.remove('active'); });
   document.getElementById('tab-' + name).classList.add('active');
   document.querySelector('.tab-btn[data-tab="' + name + '"]').classList.add('active');
-  if (name === 'dashboard') loadDashboard();
-  else if (name === 'tasks') loadTasks();
-  else if (name === 'depts') loadDepts();
+  if (name === 'dashboard') { STATE.activeDept = ''; loadDashboard(); }
+  else if (name === 'tasks') { populateDeptPicker(); loadTasks(); }
+  else if (name === 'depts') { STATE.activeDept = ''; loadDepts(); }
   else if (name === 'calendar') renderCalendar();
   else if (name === 'reports') renderReport(STATE.activeReport);
+}
+
+function populateDeptPicker() {
+  var picker = document.getElementById('dept-picker');
+  var opts = document.getElementById('dept-picker-options');
+  if (!picker || !opts) return;
+  if (STATE.depts.length <= 1) { picker.style.display = 'none'; return; }
+  opts.innerHTML = STATE.depts.map(function(d) {
+    var active = d === STATE.activeDept;
+    return '<button style="padding:6px 14px;border:2px solid ' + (active ? 'var(--primary)' : 'var(--border)') + ';border-radius:16px;background:' + (active ? 'var(--primary-light)' : 'var(--bg-card)') + ';font-size:12px;font-weight:' + (active ? '700' : '500') + ';cursor:pointer;color:' + (active ? 'var(--primary)' : 'var(--text-secondary)') + ';" onclick="selectDept(\'' + esc(d) + '\')">' + esc(d) + '</button>';
+  }).join('');
+  picker.style.display = STATE.activeDept ? 'block' : 'none';
+}
+
+function selectDept(dept) {
+  STATE.activeDept = dept;
+  populateDeptPicker();
+  loadTasks();
+}
+
+function showAllDepts() {
+  STATE.activeDept = '';
+  switchTab('depts');
 }
 
 // ── Dashboard (fast — stats + today/overdue only) ──
@@ -162,27 +185,37 @@ function taskListItems(arr) {
 // ── Tasks (loaded on-demand when tab is opened) ──
 function loadTasks() {
   var el = document.getElementById('task-list');
+  var picker = document.getElementById('dept-picker');
+  // Show dept picker for multi-dept users when no specific dept selected
+  if (STATE.depts.length > 1 && !STATE.activeDept) {
+    if (picker) picker.style.display = 'block';
+    el.innerHTML = '<div class="empty-state" style="padding:20px 0"><div class="empty-icon">📂</div><h3>Select a department</h3><p>Choose a department to view its tasks</p></div>';
+    document.getElementById('filter-count').textContent = '';
+    return;
+  }
+  if (picker) picker.style.display = 'none';
   el.innerHTML = '<div class="loading-center"><span class="spinner"></span></div>';
-  var cached = getCache('tasks');
-  if (cached) { STATE.tasks = cached; renderTasks(); }
-  loadTasksDirect(function() {
-    if (!STATE.tasks || !STATE.tasks.length) {
+  var cacheKey = 'tasks_' + (STATE.activeDept || 'all');
+  var cached = getCache(cacheKey);
+  if (cached) { STATE.tasks = cached; renderTasks(); populateFilterStaff(); return; }
+  var p = STATE.activeDept ? { action: 'getDeptTasks', dept: STATE.activeDept } : { action: 'getTasks' };
+  callApi(p, function(err, data) {
+    if (err || !data || data.error) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><h3>Could not load</h3></div>';
+      return;
+    }
+    var tasks = [];
+    if (data.tasks) tasks = data.tasks;
+    else if (data.departments) data.departments.forEach(function(d) { tasks = tasks.concat(d.tasks || []); });
+    STATE.tasks = tasks;
+    if (data.depts) STATE.depts = data.depts;
+    setCache(cacheKey, STATE.tasks);
+    if (!STATE.tasks.length) {
       el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><h3>No tasks found</h3></div>';
       return;
     }
     renderTasks();
     populateFilterStaff();
-  });
-}
-
-function loadTasksDirect(cb) {
-  if (STATE.tasks && STATE.tasks.length) { if (cb) cb(); return; }
-  callApi({ action: 'getTasks' }, function(err, data) {
-    if (err || !data || data.error) { if (cb) cb(); return; }
-    STATE.tasks = data.tasks || [];
-    if (data.depts) STATE.depts = data.depts;
-    setCache('tasks', STATE.tasks);
-    if (cb) cb();
   });
 }
 
@@ -227,6 +260,7 @@ function clearFilters() {
   ['filter-status','filter-priority','filter-assignee','filter-date-from','filter-date-to','filter-search'].forEach(function(id) {
     document.getElementById(id).value = '';
   });
+  if (STATE.activeDept) { STATE.activeDept = ''; loadTasks(); return; }
   renderTasks();
 }
 
@@ -243,48 +277,43 @@ function populateFilterStaff() {
 // ── Departments ──
 function loadDepts() {
   var el = document.getElementById('dept-list');
-  var showDept = STATE.dept || null;
-  if (!STATE.tasks || !STATE.tasks.length) {
-    el.innerHTML = '<div class="loading-center"><span class="spinner"></span></div>';
-    loadTasksDirect(function() { renderDeptView(el, showDept); });
-    return;
-  }
-  renderDeptView(el, showDept);
+  el.innerHTML = '<div class="loading-center"><span class="spinner"></span> Loading departments...</div>';
+  callApi({ action: 'getDeptSummary' }, function(err, data) {
+    if (err || !data || data.error || !data.departments) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><h3>Could not load</h3></div>';
+      return;
+    }
+    renderDeptCards(data.departments);
+  });
 }
 
-function renderDeptView(el, showDept) {
-  var grouped = {};
-  STATE.tasks.forEach(function(t) {
-    var d = t.dept || 'Other';
-    if (!grouped[d]) grouped[d] = [];
-    grouped[d].push(t);
-  });
-  var deptNames = Object.keys(grouped).sort();
-  if (showDept) deptNames = deptNames.filter(function(d) { return d === showDept; });
-  if (!deptNames.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><h3>No departments</h3></div>';
+function renderDeptCards(depts) {
+  var el = document.getElementById('dept-list');
+  if (!depts || !depts.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><h3>No departments found</h3></div>';
     return;
   }
-  el.innerHTML = deptNames.map(function(d) {
-    var tasks = grouped[d];
-    return '<div class="dept-group" style="margin-bottom:12px;">' +
-      '<div class="dept-header" onclick="this.nextElementSibling.classList.toggle(\'hidden\')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--bg-card);border-radius:var(--radius-sm) var(--radius-sm) 0 0;border:2px solid var(--border);border-bottom:none;font-weight:700;font-size:14px;color:var(--text-primary);">' +
-        esc(d) + ' <span class="dept-count" style="font-size:12px;color:var(--text-secondary);font-weight:500;">' + tasks.length + ' tasks</span>' +
+  el.innerHTML = depts.map(function(d) {
+    return '<div class="dept-card" onclick="showDeptTasks(\'' + esc(d.dept) + '\')" style="background:var(--bg-card);border-radius:var(--radius);padding:16px;margin-bottom:10px;box-shadow:var(--shadow-sm);border:1px solid var(--border);cursor:pointer;transition:var(--transition);">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+        '<div style="font-size:16px;font-weight:700;">📁 ' + esc(d.dept) + '</div>' +
+        '<div style="font-size:22px;font-weight:800;color:var(--primary);">' + d.total + '</div>' +
       '</div>' +
-      '<div class="dept-tasks" style="border:2px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);overflow:hidden;">' +
-        tasks.map(function(t) {
-          return '<div class="task-item priority-' + (t.priority||'Medium') + '" onclick="openTask(\'' + esc(t.id) + '\')" style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;">' +
-            '<div class="task-top"><span class="task-id">' + esc(t.id) + '</span> <span class="task-name">' + esc(t.task) + '</span></div>' +
-            '<div class="task-bottom" style="margin-top:4px;">' +
-              '<span class="label status-' + (t.status||'To.Do').replace(/ /g,'.') + '">' + esc(t.status||'To Do') + '</span>' +
-              (t.overdue ? ' <span class="overdue">⚠️ OVERDUE</span>' : '') +
-              (t.interDept ? ' <span style="background:#f3e5f5;color:#6c5ce7;padding:1px 8px;border-radius:6px;font-weight:600;font-size:10px;">↔ INTER-DEPT</span>' : '') +
-              ' <span>' + esc(t.assignor||'') + ' → ' + esc(t.assignee||'') + '</span>' +
-              (t.dueDate ? ' <span>📅 ' + fmtDate(t.dueDate) + '</span>' : '') +
-            '</div></div>';
-        }).join('') +
-      '</div></div>';
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+        (d.inProgress ? '<span style="background:#fff3e0;color:#e17055;padding:3px 12px;border-radius:10px;font-size:11px;font-weight:600;">🔵 ' + d.inProgress + ' Active</span>' : '') +
+        (d.overdue ? '<span style="background:#ffeef0;color:var(--danger);padding:3px 12px;border-radius:10px;font-size:11px;font-weight:600;">🔴 ' + d.overdue + ' Overdue</span>' : '') +
+        (d.completed ? '<span style="background:#e8f8f5;color:var(--success);padding:3px 12px;border-radius:10px;font-size:11px;font-weight:600;">🟢 ' + d.completed + ' Done</span>' : '') +
+        (d.urgent ? '<span style="background:#fff0f0;color:#d63031;padding:3px 12px;border-radius:10px;font-size:11px;font-weight:600;">⚡ ' + d.urgent + ' Urgent</span>' : '') +
+        (!d.inProgress && !d.overdue && !d.completed && !d.urgent ? '<span style="color:var(--text-light);font-size:12px;">No tasks</span>' : '') +
+      '</div>' +
+    '</div>';
   }).join('');
+}
+
+function showDeptTasks(dept) {
+  STATE.activeDept = dept;
+  switchTab('tasks');
+  loadTasks();
 }
 
 // ── Task Sheet ──
